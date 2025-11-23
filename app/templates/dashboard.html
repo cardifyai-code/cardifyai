@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 class="mb-3">Dashboard</h1>
+
+<p class="mb-2">
+  Plan:
+  <strong>{{ (current_user.tier or 'free')|capitalize }}</strong>
+  {% if current_user.is_admin %}
+    <span class="badge bg-warning text-dark ms-1">Admin</span>
+  {% endif %}
+</p>
+
+<p class="mb-3 text-muted">
+  Daily flashcard limits:
+  <strong>Free: 10/day | Basic: 1,000/day | Premium: 5,000/day | Professional: 50,000/day</strong>
+</p>
+
+<div class="row mb-4">
+  <div class="col-lg-8">
+    <form method="post" enctype="multipart/form-data" class="mb-4">
+
+      <!-- Text Input -->
+      <div class="mb-3">
+        <label for="text_content" class="form-label">Source Text</label>
+        <textarea
+          class="form-control"
+          id="text_content"
+          name="text_content"
+          rows="6"
+          placeholder="Paste your lecture notes, textbook content, or key concepts here..."
+        >{{ request.form.text_content or "" }}</textarea>
+      </div>
+
+      <!-- PDF Upload -->
+      <div class="mb-3">
+        <label for="pdf_file" class="form-label">Or Upload a PDF</label>
+        <input
+          type="file"
+          class="form-control"
+          id="pdf_file"
+          name="pdf_file"
+          accept="application/pdf"
+        >
+        <div class="form-text">
+          If you provide both text and a PDF, they will be combined.
+        </div>
+      </div>
+
+      <!-- Number of Cards -->
+      <div class="row mb-3">
+        <div class="col-md-6">
+          <label for="num_cards" class="form-label">Number of Cards</label>
+          <input
+            type="number"
+            class="form-control"
+            id="num_cards"
+            name="num_cards"
+            value="{{ request.form.num_cards or 10 }}"
+            min="1"
+            max="2000"
+          >
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Generate Flashcards</button>
+    </form>
+  </div>
+
+  <!-- Upgrade / Billing Panel -->
+  <div class="col-lg-4">
+    <div class="card mb-3">
+      <div class="card-body">
+        <h5 class="card-title">Upgrade Plan</h5>
+        <p class="card-text">
+          Unlock higher daily limits and handle larger PDFs with ease.
+        </p>
+
+        <ul class="list-unstyled small mb-3">
+          <li><strong>Basic – $3.99/mo</strong>: 1,000 cards/day</li>
+          <li><strong>Premium – $7.99/mo</strong>: 5,000 cards/day</li>
+          <li><strong>Professional – $19.99/mo</strong>: 50,000 cards/day</li>
+        </ul>
+
+        <a href="{{ url_for('billing.subscribe', plan='basic') }}"
+           class="btn btn-outline-primary w-100 mb-2">
+          Upgrade to Basic
+        </a>
+        <a href="{{ url_for('billing.subscribe', plan='premium') }}"
+           class="btn btn-primary w-100 mb-2">
+          Upgrade to Premium
+        </a>
+        <a href="{{ url_for('billing.subscribe', plan='professional') }}"
+           class="btn btn-dark w-100 mb-2">
+          Upgrade to Professional
+        </a>
+
+        <hr>
+
+        <a href="{{ url_for('billing.billing_portal') }}"
+           class="btn btn-outline-secondary w-100">
+          Manage Billing (update card / cancel)
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if cards %}
+  <hr>
+  <h4 class="mb-3">Preview ({{ cards|length }} cards)</h4>
+  <div class="list-group mb-3">
+    {% for card in cards %}
+      <div class="list-group-item">
+        <strong>Q:</strong> {{ card.front or card["front"] }}<br>
+        <strong>A:</strong> {{ card.back or card["back"] }}
+      </div>
+    {% endfor %}
+  </div>
+
+  <h5>Download Deck</h5>
+  <a href="{{ url_for('views.download', fmt='apkg') }}" class="btn btn-success me-2 mb-2">
+    Download Anki (.apkg)
+  </a>
+  <a href="{{ url_for('views.download', fmt='csv') }}" class="btn btn-outline-primary me-2 mb-2">
+    Download CSV
+  </a>
+  <a href="{{ url_for('views.download', fmt='json') }}" class="btn btn-outline-secondary mb-2">
+    Download JSON
+  </a>
+{% endif %}
+
+{% endblock %}

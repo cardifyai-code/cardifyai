@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="row mb-4">
+  <div class="col-lg-7">
+    <h1 class="mb-3">CardifyAI</h1>
+    <p class="lead">
+      Turn your notes, lectures, and PDFs into high-quality flashcards in seconds.
+      Export to Anki (.apkg), CSV, or JSON and drop them straight into your decks.
+    </p>
+    <p>
+      Sign in with Google to start generating flashcards.
+      Free plan gives you <strong>10 cards per day</strong>, with higher limits on paid plans.
+    </p>
+
+    <div class="mb-3">
+      {% if not current_user.is_authenticated %}
+        <a href="{{ url_for('auth.login') }}" class="btn btn-outline-danger mb-2">
+          Continue with Google
+        </a>
+      {% else %}
+        <a href="{{ url_for('views.dashboard') }}" class="btn btn-primary mb-2">
+          Go to Dashboard
+        </a>
+      {% endif %}
+    </div>
+
+    <p class="text-muted">
+      CardifyAI uses your Google account only for authentication (email) to track your plan & usage.
+    </p>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title mb-3">How it works</h5>
+        <ol class="mb-3">
+          <li>Sign in with Google.</li>
+          <li>Paste notes or upload a PDF on the dashboard.</li>
+          <li>Download your flashcards as Anki (.apkg), CSV, or JSON.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

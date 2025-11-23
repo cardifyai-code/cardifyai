@@ -1,0 +1,13 @@
+Flask
+Flask-Login
+Flask-SQLAlchemy
+python-dotenv
+gunicorn
+stripe
+authlib
+requests
+SQLAlchemy
+psycopg2-binary
+PyPDF2
+openai>=1.0.0
+Werkzeug

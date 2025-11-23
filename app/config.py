@@ -1,8 +1,9 @@
 import os
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load environment variables from .env (for local dev)
 load_dotenv()
+
 
 class Config:
     # =============================
@@ -45,3 +46,35 @@ class Config:
 
     # Admin email for unlimited privileges
     ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").lower()
+
+
+# =====================================================
+# SYSTEM_PROMPT used by app.ai.generate_flashcards_from_text
+# =====================================================
+
+SYSTEM_PROMPT = """
+You are an AI that generates high-quality study flashcards for students
+(medical, law, and other intensive fields).
+
+Requirements:
+- Read the provided source text carefully.
+- Identify the most important, testable concepts.
+- For each concept, create a flashcard with:
+  - "front": a clear question, prompt, or term.
+  - "back": a concise but accurate answer or explanation.
+- Prefer high-yield concepts over trivial details.
+- Avoid duplicate or near-duplicate cards.
+- Use simple, direct language.
+
+Output format:
+Return ONLY valid JSON in this exact structure:
+
+[
+  {"front": "Question or term 1", "back": "Answer or explanation 1"},
+  {"front": "Question or term 2", "back": "Answer or explanation 2"},
+  ...
+]
+
+Do not include any extra commentary, markdown, or text outside
+of the JSON array.
+"""

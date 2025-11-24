@@ -1,41 +1,107 @@
-from datetime import datetime, date
+from datetime import datetime
 from flask_login import UserMixin
 
-from . import db, login_manager
+from . import db
 
 
-class User(UserMixin, db.Model):
-    __tablename__ = "user"
+class User(db.Model, UserMixin):
+    __tablename__ = "users"
 
     id = db.Column(db.Integer, primary_key=True)
 
-    # Core identity
-    email = db.Column(db.String(255), unique=True, nullable=False)
-    password_hash = db.Column(db.String(255))  # kept optional; we use Google OAuth
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    # Auth
+    email = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255))  # optional if using Google-only login
+    google_id = db.Column(db.String(255), unique=True)
 
-    # Subscription tier: "free", "basic", "premium", "professional"
-    tier = db.Column(db.String(32), default="free", nullable=False)
-
-    # Daily usage tracking for flashcards
-    daily_cards_generated = db.Column(db.Integer, default=0, nullable=False)
-    daily_reset_date = db.Column(db.Date, default=date.today, nullable=False)
-
-    # Stripe linkage
+    # Stripe / billing (current active subscription info)
     stripe_customer_id = db.Column(db.String(255))
     stripe_subscription_id = db.Column(db.String(255))
+    stripe_price_id = db.Column(db.String(255))
+    plan = db.Column(db.String(50), default="free")  # free/basic/premium/professional
+    is_active = db.Column(db.Boolean, default=True)
+    is_admin = db.Column(db.Boolean, default=False)
 
-    # Admin flag (your email gets this)
-    is_admin = db.Column(db.Boolean, default=False, nullable=False)
+    # Quotas
+    monthly_card_quota = db.Column(db.Integer, default=1000)
+    cards_generated_this_month = db.Column(db.Integer, default=0)
+    quota_reset_at = db.Column(db.DateTime)
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    # Relationships
+    flashcards = db.relationship("Flashcard", backref="user", lazy=True)
+    subscriptions = db.relationship("Subscription", backref="user", lazy=True)
 
     def __repr__(self) -> str:
-        return f"<User {self.id} {self.email} tier={self.tier}>"
+        return f"<User id={self.id} email={self.email} plan={self.plan}>"
+
+    @property
+    def is_premium(self) -> bool:
+        """Convenience helper: treat any paid plan as premium."""
+        return self.plan in {"basic", "premium", "professional"}
 
 
+class Subscription(db.Model):
+    """
+    Historical subscription records.
 
-@login_manager.user_loader
-def load_user(user_id: str):
-    try:
-        return User.query.get(int(user_id))
-    except (TypeError, ValueError):
-        return None
+    The User table keeps the *current* subscription fields for quick checks.
+    This table tracks changes over time: upgrades, downgrades, cancellations, etc.
+    """
+
+    __tablename__ = "subscriptions"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
+    )
+
+    stripe_subscription_id = db.Column(db.String(255), index=True)
+    stripe_customer_id = db.Column(db.String(255))
+    price_id = db.Column(db.String(255))  # Stripe price id (e.g. price_XXXX)
+    plan = db.Column(db.String(50))  # basic/premium/professional
+    status = db.Column(db.String(50))  # active/canceled/incomplete/etc.
+    cancel_at_period_end = db.Column(db.Boolean, default=False)
+
+    current_period_start = db.Column(db.DateTime)
+    current_period_end = db.Column(db.DateTime)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<Subscription id={self.id} user_id={self.user_id} "
+            f"plan={self.plan} status={self.status}>"
+        )
+
+
+class Flashcard(db.Model):
+    __tablename__ = "flashcards"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
+    )
+
+    front = db.Column(db.Text, nullable=False)
+    back = db.Column(db.Text, nullable=False)
+
+    # Optional metadata
+    source_type = db.Column(db.String(50))  # e.g. "text", "pdf", "url"
+    source_title = db.Column(db.String(255))
+    source_id = db.Column(db.String(255))  # if you later add docs/uploads
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self) -> str:
+        return f"<Flashcard id={self.id} user_id={self.user_id}>"

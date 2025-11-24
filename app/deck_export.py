@@ -1,23 +1,20 @@
 import io
 import csv
-import json
-import random
-import time
-from typing import List, Dict
-
 import genanki
+from typing import List, Dict, Any
 
 
-def create_apkg_from_flashcards(
-    flashcards: List[Dict[str, str]],
-    deck_name: str = "CardifyAI Deck",
-) -> bytes:
-    """Create an .apkg file from flashcards using genanki and return bytes."""
-    deck_id = int(time.time()) + random.randint(0, 1000000)
-    model_id = deck_id + 1
+# Stable deterministic IDs (important for Anki)
+MODEL_ID = 1607392319
+DECK_ID = 2059400110
 
-    my_model = genanki.Model(
-        model_id,
+
+def _build_anki_model() -> genanki.Model:
+    """
+    Create a basic front/back card model for Anki.
+    """
+    return genanki.Model(
+        MODEL_ID,
         "CardifyAI Basic Model",
         fields=[
             {"name": "Front"},
@@ -27,43 +24,66 @@ def create_apkg_from_flashcards(
             {
                 "name": "Card 1",
                 "qfmt": "{{Front}}",
-                "afmt": "{{Front}}<br><br>{{Back}}",
-            },
+                "afmt": "{{Front}}<br><hr id='answer'>{{Back}}",
+            }
         ],
     )
 
-    my_deck = genanki.Deck(deck_id, deck_name)
 
-    for card in flashcards:
+def create_apkg_from_cards(cards: List[Dict[str, Any]], deck_name: str = "CardifyAI Deck") -> bytes:
+    """
+    Build an Anki .apkg file from cards:
+      [{"front": "...", "back": "..."}, ...]
+    Returns bytes for direct download.
+    """
+    model = _build_anki_model()
+    deck = genanki.Deck(DECK_ID, deck_name)
+
+    for index, card in enumerate(cards):
+        front = (card.get("front") or "").strip()
+        back = (card.get("back") or "").strip()
+
+        if not front or not back:
+            continue
+
+        # Stable GUID from card contents
+        guid = str(abs(hash(front + back + str(index))))
+
         note = genanki.Note(
-            model=my_model,
-            fields=[card["front"], card["back"]],
+            model=model,
+            fields=[front, back],
+            guid=guid,
         )
-        my_deck.add_note(note)
 
-    package = genanki.Package(my_deck)
-    mem_stream = io.BytesIO()
-    package.write_to_file(mem_stream)
-    mem_stream.seek(0)
-    return mem_stream.read()
+        deck.add_note(note)
 
+    pkg = genanki.Package(deck)
+    stream = io.BytesIO()
+    pkg.write_to_buffer(stream)
 
-def create_csv_from_flashcards(
-    flashcards: List[Dict[str, str]],
-) -> bytes:
-    mem_stream = io.StringIO()
-    writer = csv.writer(mem_stream)
-    writer.writerow(["Front", "Back"])
-    for card in flashcards:
-        writer.writerow([card["front"], card["back"]])
-    return mem_stream.getvalue().encode("utf-8")
+    return stream.getvalue()
 
 
-def create_json_from_flashcards(
-    flashcards: List[Dict[str, str]],
-) -> bytes:
-    payload = {
-        "deck_name": "CardifyAI Deck",
-        "cards": flashcards,
-    }
-    return json.dumps(payload, indent=2).encode("utf-8")
+def create_csv_from_cards(cards: List[Dict[str, Any]]) -> bytes:
+    """
+    Export cards to CSV. Returns UTF-8 encoded CSV bytes.
+    """
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    writer.writerow(["Front", "Back"])  # Header row
+
+    for card in cards:
+        front = (card.get("front") or "").replace("\n", " ").strip()
+        back = (card.get("back") or "").replace("\n", " ").strip()
+
+        if not front or not back:
+            continue
+
+        writer.writerow([front, back])
+
+    csv_data = output.getvalue()
+    output.close()
+
+    # Add BOM so Excel loads correctly
+    return ("\ufeff" + csv_data).encode("utf-8")

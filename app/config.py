@@ -15,12 +15,7 @@ class Config:
     # =============================
     # Database
     # =============================
-    # Render requires a SQLAlchemy-style URL:
-    # postgresql+psycopg2://USER:PASSWORD@HOST:PORT/DBNAME
-    SQLALCHEMY_DATABASE_URI = os.getenv(
-        "DATABASE_URL",
-        "sqlite:///ankifyai.sqlite3"
-    )
+    SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # =============================

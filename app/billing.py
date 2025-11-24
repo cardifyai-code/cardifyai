@@ -1,219 +1,168 @@
-import json
-
 import stripe
 from flask import (
     Blueprint,
-    request,
     current_app,
     redirect,
+    request,
     url_for,
-    flash,
     jsonify,
+    abort,
 )
 from flask_login import login_required, current_user
 
 from . import db
 from .models import User
 
+
 billing_bp = Blueprint("billing", __name__, url_prefix="/billing")
 
 
-# ============================================================
-# Initialize Stripe
-# ============================================================
-def init_stripe():
-    """Configure the global Stripe API key from app config."""
-    stripe.api_key = current_app.config["STRIPE_SECRET_KEY"]
+# -------------------------------------------------------------------
+# Helper: Pick Stripe Price ID for subscription tier
+# -------------------------------------------------------------------
+
+def _get_price_id_for_tier(tier: str) -> str | None:
+    tier = (tier or "").lower()
+    cfg = current_app.config
+
+    if tier == "basic":
+        return cfg.get("STRIPE_BASIC_PRICE_ID")
+    if tier == "premium":
+        return cfg.get("STRIPE_PREMIUM_PRICE_ID")
+    if tier == "professional":
+        return cfg.get("STRIPE_PROFESSIONAL_PRICE_ID")
+
+    return None
 
 
-# ============================================================
-# Create Checkout Session for Subscription
-# ============================================================
-@billing_bp.route("/subscribe/<plan>", methods=["GET"])
+# -------------------------------------------------------------------
+# Set Stripe API key for every app request
+# -------------------------------------------------------------------
+
+@billing_bp.before_app_request
+def _init_stripe():
+    stripe.api_key = current_app.config.get("STRIPE_SECRET_KEY")
+
+
+# -------------------------------------------------------------------
+# Create Stripe Checkout Session
+# -------------------------------------------------------------------
+
+@billing_bp.route("/create-checkout-session/<tier>")
 @login_required
-def subscribe(plan):
-    """
-    Start a Stripe Checkout session for the given plan:
-      - basic
-      - premium
-      - professional
-    """
-    init_stripe()
-
-    # Map plan -> Stripe Price ID from config
-    if plan == "basic":
-        price_id = current_app.config["STRIPE_BASIC_PRICE_ID"]
-    elif plan == "premium":
-        price_id = current_app.config["STRIPE_PREMIUM_PRICE_ID"]
-    elif plan == "professional":
-        price_id = current_app.config["STRIPE_PROFESSIONAL_PRICE_ID"]
-    else:
-        flash("Invalid plan selected.", "danger")
-        return redirect(url_for("views.dashboard"))
-
+def create_checkout_session(tier):
+    price_id = _get_price_id_for_tier(tier)
     if not price_id:
-        flash("This plan is not configured yet. Contact support.", "danger")
-        return redirect(url_for("views.dashboard"))
+        abort(404)
 
-    try:
-        # Create checkout session
-        session = stripe.checkout.Session.create(
-            customer_email=current_user.email,
-            payment_method_types=["card"],
-            mode="subscription",
-            line_items=[
-                {
-                    "price": price_id,
-                    "quantity": 1,
-                }
-            ],
-            success_url=request.host_url.rstrip("/")
-            + url_for("billing.success"),
-            cancel_url=request.host_url.rstrip("/")
-            + url_for("views.dashboard"),
-        )
+    domain = request.host_url.rstrip("/")
 
-        return redirect(session.url, code=303)
-
-    except Exception as e:
-        flash(f"Stripe error: {e}", "danger")
-        return redirect(url_for("views.dashboard"))
-
-
-# ============================================================
-# Success Page
-# ============================================================
-@billing_bp.route("/success")
-def success():
-    """
-    Land here after a successful Stripe Checkout.
-    The actual subscription activation is handled by webhooks.
-    """
-    flash("Subscription activated! Thank you!", "success")
-    return redirect(url_for("views.dashboard"))
-
-
-# ============================================================
-# Stripe Billing Portal (Manage Billing)
-# ============================================================
-@billing_bp.route("/portal")
-@login_required
-def billing_portal():
-    """
-    Send the user to Stripe's Billing Portal to manage:
-      - card details
-      - subscription (cancel/upgrade)
-      - invoices
-    """
-    init_stripe()
-
+    # Create Stripe customer if needed
     if not current_user.stripe_customer_id:
-        flash("No Stripe customer found for your account.", "danger")
-        return redirect(url_for("views.dashboard"))
+        customer = stripe.Customer.create(email=current_user.email)
+        current_user.stripe_customer_id = customer.id
+        db.session.commit()
 
-    try:
-        portal_session = stripe.billing_portal.Session.create(
-            customer=current_user.stripe_customer_id,
-            return_url=request.host_url.rstrip("/") + url_for("views.dashboard"),
-        )
-        return redirect(portal_session.url, code=303)
-    except Exception as e:
-        flash(f"Error loading billing portal: {e}", "danger")
-        return redirect(url_for("views.dashboard"))
+    checkout_session = stripe.checkout.Session.create(
+        mode="subscription",
+        payment_method_types=["card"],
+        line_items=[{"price": price_id, "quantity": 1}],
+        customer=current_user.stripe_customer_id,
+        success_url=f"{domain}{url_for('views.dashboard')}?session_id={{CHECKOUT_SESSION_ID}}",
+        cancel_url=f"{domain}{url_for('views.dashboard')}",
+        metadata={
+            "tier": tier.lower(),
+            "user_email": current_user.email.lower(),
+        },
+    )
+
+    return redirect(checkout_session.url, code=303)
 
 
-# ============================================================
-# Stripe Webhook — handles subscription events
-# ============================================================
+# -------------------------------------------------------------------
+# Stripe Billing Portal (change plan, update card, cancel, etc.)
+# -------------------------------------------------------------------
+
+@billing_bp.route("/customer-portal")
+@login_required
+def customer_portal():
+    if not current_user.stripe_customer_id:
+        customer = stripe.Customer.create(email=current_user.email)
+        current_user.stripe_customer_id = customer.id
+        db.session.commit()
+
+    domain = request.host_url.rstrip("/")
+
+    portal = stripe.billing_portal.Session.create(
+        customer=current_user.stripe_customer_id,
+        return_url=f"{domain}{url_for('views.dashboard')}",
+    )
+
+    return redirect(portal.url, code=303)
+
+
+# -------------------------------------------------------------------
+# Stripe Webhook — must be publicly accessible
+# -------------------------------------------------------------------
+
 @billing_bp.route("/webhook", methods=["POST"])
 def stripe_webhook():
-    """
-    Handle Stripe webhook events such as:
-      - customer.subscription.updated
-      - customer.subscription.deleted
-      - customer.created
-    These events keep our User.tier and Stripe IDs in sync.
-    """
-    init_stripe()
-
     payload = request.data
-    sig_header = request.headers.get("Stripe-Signature")
-    webhook_secret = current_app.config["STRIPE_WEBHOOK_SECRET"]
+    sig = request.headers.get("Stripe-Signature")
+    secret = current_app.config.get("STRIPE_WEBHOOK_SECRET")
 
-    if webhook_secret:
-        # Verify webhook signature in production
-        try:
-            event = stripe.Webhook.construct_event(
-                payload, sig_header, webhook_secret
-            )
-        except Exception as e:
-            return jsonify({"error": str(e)}), 400
-    else:
-        # In dev, if no secret is set, just parse JSON
-        event = json.loads(payload)
+    if not secret:
+        return "Webhook secret missing", 500
 
-    event_type = event.get("type")
-    data = event.get("data", {}).get("object", {})
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, secret)
+    except ValueError:
+        return "Invalid payload", 400
+    except stripe.error.SignatureVerificationError:
+        return "Invalid signature", 400
 
-    # ========================================================
-    # customer.subscription.updated
-    #   - Set user.tier based on price ID
-    # ========================================================
-    if event_type == "customer.subscription.updated":
-        subscription_id = data.get("id")
-        customer_id = data.get("customer")
-        status = data.get("status")
+    event_type = event["type"]
 
-        # Determine tier from price ID
-        try:
-            item = data["items"]["data"][0]
-            price_id = item["price"]["id"]
-        except Exception:
-            price_id = None
+    # --------------------------------------------------------------
+    # checkout.session.completed → Assign subscription to user
+    # --------------------------------------------------------------
+    if event_type == "checkout.session.completed":
+        session_obj = event["data"]["object"]
 
-        if price_id == current_app.config["STRIPE_BASIC_PRICE_ID"]:
-            tier = "basic"
-        elif price_id == current_app.config["STRIPE_PREMIUM_PRICE_ID"]:
-            tier = "premium"
-        elif price_id == current_app.config["STRIPE_PROFESSIONAL_PRICE_ID"]:
-            tier = "professional"
-        else:
-            tier = "free"
+        customer_id = session_obj.get("customer")
+        subscription_id = session_obj.get("subscription")
+        meta = session_obj.get("metadata") or {}
 
-        user = User.query.filter_by(stripe_customer_id=customer_id).first()
+        tier = (meta.get("tier") or "free").lower()
+        email = (meta.get("user_email") or "").lower()
+
+        # Find user by Stripe customer ID OR email
+        user = None
+
+        if customer_id:
+            user = User.query.filter_by(stripe_customer_id=customer_id).first()
+
+        if not user and email:
+            user = User.query.filter_by(email=email).first()
+
         if user:
-            # If subscription is not active, downgrade to free
-            if status not in ("active", "trialing"):
-                user.tier = "free"
-            else:
-                user.tier = tier
+            user.tier = tier
             user.stripe_subscription_id = subscription_id
             db.session.commit()
 
-    # ========================================================
-    # customer.created
-    #   - Attach stripe_customer_id to User via email
-    # ========================================================
-    elif event_type == "customer.created":
-        customer_id = data.get("id")
-        email = data.get("email")
+    # --------------------------------------------------------------
+    # subscription updated/deleted → downgrade to free
+    # --------------------------------------------------------------
+    elif event_type in ("customer.subscription.updated", "customer.subscription.deleted"):
+        sub = event["data"]["object"]
+        customer_id = sub.get("customer")
+        status = sub.get("status")
 
-        if email:
-            user = User.query.filter_by(email=email).first()
-            if user:
-                user.stripe_customer_id = customer_id
-                db.session.commit()
-
-    # ========================================================
-    # customer.subscription.deleted
-    #   - Downgrade user to free tier
-    # ========================================================
-    elif event_type == "customer.subscription.deleted":
-        customer_id = data.get("customer")
         user = User.query.filter_by(stripe_customer_id=customer_id).first()
-        if user:
+
+        if user and status not in ("active", "trialing"):
             user.tier = "free"
             user.stripe_subscription_id = None
             db.session.commit()
 
-    return jsonify({"status": "success"}), 200
+    return jsonify({"status": "ok"})

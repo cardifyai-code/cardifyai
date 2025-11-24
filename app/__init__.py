@@ -1,37 +1,61 @@
+import os
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
-from authlib.integrations.flask_client import OAuth
-
 from .config import Config
 
 db = SQLAlchemy()
 login_manager = LoginManager()
-login_manager.login_view = "auth.login"
-
-oauth = OAuth()
 
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
-    # Init extensions
+    # =============================
+    # Initialize Extensions
+    # =============================
     db.init_app(app)
     login_manager.init_app(app)
-    oauth.init_app(app)
+    login_manager.login_view = "views.login"
+    login_manager.login_message_category = "info"
 
-    # Import & register blueprints
-    from .auth import auth_bp
+    # =============================
+    # Import Models
+    # =============================
+    from .models import User  # Avoid circular imports
+
+    @login_manager.user_loader
+    def load_user(user_id):
+        return User.query.get(int(user_id))
+
+    # =============================
+    # Register Blueprints
+    # =============================
     from .views import views_bp
+    from .auth import auth_bp
     from .billing import billing_bp
 
-    app.register_blueprint(auth_bp)
     app.register_blueprint(views_bp)
+    app.register_blueprint(auth_bp)
     app.register_blueprint(billing_bp)
 
-    # Create database tables if not present
+    # =============================
+    # Create Database on Startup
+    # =============================
     with app.app_context():
-        db.create_all()
+        try:
+            db.create_all()
+        except Exception as e:
+            print("❌ DATABASE INIT ERROR:", e)
+
+    # =============================
+    # Stripe Webhook Route Load
+    # =============================
+    try:
+        import stripe
+        stripe.api_key = Config.STRIPE_SECRET_KEY
+    except Exception:
+        print("⚠️ Stripe not initialized (likely during local dev).")
 
     return app

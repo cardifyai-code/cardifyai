@@ -2,13 +2,11 @@
 
 import json
 import re
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 from openai import OpenAI
-from flask_login import current_user
 
 from .config import Config, SYSTEM_PROMPT
-from . import db
 
 client = OpenAI()
 
@@ -136,41 +134,38 @@ def _normalize_cards(raw: str) -> List[Dict[str, str]]:
     return cards
 
 
-def _record_token_usage(response) -> None:
+def _extract_usage_tokens(response) -> Tuple[int, int]:
     """
-    Update current_user's token counters from an OpenAI response, if available.
-    Safe to call even if there's no logged-in user or no usage info.
-    """
-    if not getattr(current_user, "is_authenticated", False):
-        return
+    Safely extract input/output token counts from the OpenAI response.
 
+    Returns:
+      (input_tokens, output_tokens)
+    """
     usage = getattr(response, "usage", None)
     if not usage:
-        return
+        return 0, 0
 
-    # Newer OpenAI clients often expose usage as .input_tokens / .output_tokens
-    # but we also fall back to prompt_tokens / completion_tokens if needed.
+    # Newer style: input_tokens / output_tokens
     in_tokens = getattr(usage, "input_tokens", None)
     out_tokens = getattr(usage, "output_tokens", None)
 
+    # Fallback to older style: prompt_tokens / completion_tokens
     if in_tokens is None and hasattr(usage, "prompt_tokens"):
         in_tokens = usage.prompt_tokens
     if out_tokens is None and hasattr(usage, "completion_tokens"):
         out_tokens = usage.completion_tokens
 
-    in_tokens = int(in_tokens or 0)
-    out_tokens = int(out_tokens or 0)
-
-    # Update user fields
-    current_user.daily_input_tokens = (current_user.daily_input_tokens or 0) + in_tokens
-    current_user.daily_output_tokens = (current_user.daily_output_tokens or 0) + out_tokens
-    current_user.monthly_input_tokens = (current_user.monthly_input_tokens or 0) + in_tokens
-    current_user.monthly_output_tokens = (current_user.monthly_output_tokens or 0) + out_tokens
+    try:
+        in_tokens = int(in_tokens or 0)
+    except Exception:
+        in_tokens = 0
 
     try:
-        db.session.commit()
+        out_tokens = int(out_tokens or 0)
     except Exception:
-        db.session.rollback()
+        out_tokens = 0
+
+    return in_tokens, out_tokens
 
 
 def _call_openai_for_segment(
@@ -178,7 +173,7 @@ def _call_openai_for_segment(
     segment_index: int,
     total_segments: int,
     target_cards: int,
-) -> List[Dict[str, str]]:
+) -> Tuple[List[Dict[str, str]], int, int]:
     """
     Call OpenAI for a single segment of the text.
 
@@ -189,9 +184,12 @@ def _call_openai_for_segment(
           * Use all important info from this segment
           * Produce up to 'target_cards' cards
       - Extra constraints to force concrete, passage-anchored answers.
+
+    Returns:
+      (cards, input_tokens, output_tokens)
     """
     if target_cards <= 0:
-        return []
+        return [], 0, 0
 
     # Safety clamp
     target_cards = max(1, min(target_cards, 2000))
@@ -230,17 +228,16 @@ Here is the segment text:
         temperature=0.3,
     )
 
-    # Track token usage on the current user, if possible
-    _record_token_usage(response)
-
     content = response.choices[0].message.content or ""
-    return _normalize_cards(content)
+    cards = _normalize_cards(content)
+    in_tokens, out_tokens = _extract_usage_tokens(response)
+    return cards, in_tokens, out_tokens
 
 
 def generate_flashcards_from_text(
     source_text: str,
     num_cards: int = 10,
-) -> List[Dict[str, str]]:
+) -> Tuple[List[Dict[str, str]], int, int]:
     """
     Main API for the rest of the app.
 
@@ -253,10 +250,13 @@ def generate_flashcards_from_text(
     - Enforces that answers are overtly derivable from the passage (see instructions).
     - Merges and deduplicates cards across segments.
     - Trims to at most num_cards cards.
+
+    Returns:
+      (cards, total_input_tokens, total_output_tokens)
     """
     cleaned = _clean_text(source_text)
     if not cleaned:
-        return []
+        return [], 0, 0
 
     # Safety on num_cards
     if num_cards <= 0:
@@ -266,12 +266,14 @@ def generate_flashcards_from_text(
 
     segments = _segment_text(cleaned)
     if not segments:
-        return []
+        return [], 0, 0
 
     total_length = sum(len(s) for s in segments)
     remaining_cards = num_cards
 
     all_cards: List[Dict[str, str]] = []
+    total_input_tokens = 0
+    total_output_tokens = 0
 
     for idx, segment in enumerate(segments):
         if remaining_cards <= 0:
@@ -288,15 +290,18 @@ def generate_flashcards_from_text(
         if segment_target > remaining_cards:
             segment_target = remaining_cards
 
-        segment_cards = _call_openai_for_segment(
+        seg_cards, seg_in, seg_out = _call_openai_for_segment(
             segment_text=segment,
             segment_index=idx,
             total_segments=len(segments),
             target_cards=segment_target,
         )
 
-        all_cards.extend(segment_cards)
-        remaining_cards -= len(segment_cards)
+        all_cards.extend(seg_cards)
+        remaining_cards -= len(seg_cards)
+
+        total_input_tokens += seg_in
+        total_output_tokens += seg_out
 
     # Deduplicate by (front, back)
     seen = set()
@@ -312,4 +317,4 @@ def generate_flashcards_from_text(
     if len(deduped) > num_cards:
         deduped = deduped[:num_cards]
 
-    return deduped
+    return deduped, total_input_tokens, total_output_tokens

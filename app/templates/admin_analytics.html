@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 class="mb-3">Admin Analytics</h1>
+
+<p class="text-muted mb-4">
+  Deep analytics for usage, tokens, traffic, and revenue.
+  <br>
+  <a href="{{ url_for('views.admin_dashboard') }}">&larr; Back to Admin Dashboard</a>
+</p>
+
+<!-- ============================
+     Top KPI Cards
+     ============================ -->
+<div class="row g-3 mb-4">
+
+  <!-- Total Users -->
+  <div class="col-md-3">
+    <div class="card border-primary h-100">
+      <div class="card-body text-center">
+        <h6 class="text-muted">Total Users</h6>
+        <p class="display-6 mb-1">{{ total_users }}</p>
+        <small class="text-muted">All registered accounts</small>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active Subscribers -->
+  <div class="col-md-3">
+    <div class="card border-success h-100">
+      <div class="card-body text-center">
+        <h6 class="text-muted">Active Subscribers</h6>
+        <p class="display-6 mb-1">{{ total_active_subs }}</p>
+        <small class="text-muted">Basic / Premium / Professional</small>
+      </div>
+    </div>
+  </div>
+
+  <!-- Traffic last 30 days -->
+  <div class="col-md-3">
+    <div class="card border-info h-100">
+      <div class="card-body text-center">
+        <h6 class="text-muted">Visits (Last 30 Days)</h6>
+        <p class="display-6 mb-1">{{ total_visits_30d }}</p>
+        <small class="text-muted">Avg/day: {{ "%.1f"|format(avg_daily_visits_30d) }}</small>
+      </div>
+    </div>
+  </div>
+
+  <!-- Revenue vs Cost -->
+  <div class="col-md-3">
+    <div class="card border-warning h-100">
+      <div class="card-body text-center">
+        <h6 class="text-muted">Revenue vs Cost (Monthly)</h6>
+        <p class="mb-1">
+          <span class="fw-bold text-success">${{ "%.2f"|format(total_estimated_revenue) }}</span>
+          <span class="text-muted"> / </span>
+          <span class="fw-bold text-danger">${{ "%.4f"|format(total_estimated_cost) }}</span>
+        </p>
+        <small class="text-muted">
+          Est. profit:
+          {% if est_profit >= 0 %}
+            <span class="text-success">${{ "%.2f"|format(est_profit) }}</span>
+          {% else %}
+            <span class="text-danger">${{ "%.2f"|format(est_profit) }}</span>
+          {% endif %}
+        </small>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+
+<!-- ============================
+     Charts Row 1: Traffic & Subs
+     ============================ -->
+<div class="row g-3 mb-4">
+
+  <!-- Traffic chart -->
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">Website Traffic (Last 30 Days)</h5>
+        <p class="text-muted small">
+          Unique visits / day. Data based on your VisitLog model (or equivalent).
+        </p>
+        <canvas id="trafficChart" height="130"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Subscriptions chart -->
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">Active Subscriptions Over Time</h5>
+        <p class="text-muted small">
+          Rolling count of active paid plans.
+        </p>
+        <canvas id="subsChart" height="130"></canvas>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+
+<!-- ============================
+     Charts Row 2: Revenue & Tokens
+     ============================ -->
+<div class="row g-3 mb-4">
+
+  <!-- Revenue chart -->
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">Monthly Recurring Revenue (MRR)</h5>
+        <p class="text-muted small">
+          Estimated Stripe subscription revenue per month.
+        </p>
+        <canvas id="revenueChart" height="130"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Token usage chart -->
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">Monthly Token Usage</h5>
+        <p class="text-muted small">
+          Tokens across all users; cost computed using your OpenAI price per 1K tokens.
+        </p>
+        <canvas id="tokensChart" height="130"></canvas>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+
+<!-- ============================
+     Token Cost Breakdown Table
+     ============================ -->
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title mb-3">Token Cost Breakdown (Current Month)</h5>
+    <p class="text-muted small mb-3">
+      Per-plan aggregates. Cost is estimated using
+      <code>${{ "%.4f"|format(est_cost_per_1k) }} / 1K tokens</code>.
+    </p>
+
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Plan</th>
+            <th>Users</th>
+            <th>Total Tokens</th>
+            <th>Est. Cost</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in token_cost_rows %}
+          <tr>
+            <td>{{ row.plan|capitalize }}</td>
+            <td>{{ row.user_count }}</td>
+            <td>{{ row.total_tokens }}</td>
+            <td>${{ "%.4f"|format(row.estimated_cost) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ============================
+     Chart.js + Data Wiring
+     ============================ -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  // Traffic Chart
+  const trafficCtx = document.getElementById('trafficChart');
+  if (trafficCtx) {
+    new Chart(trafficCtx, {
+      type: 'line',
+      data: {
+        labels: {{ traffic_labels | safe }},
+        datasets: [{
+          label: 'Visits',
+          data: {{ traffic_values | safe }},
+          borderWidth: 2,
+          borderColor: "#0d6efd",
+          fill: false,
+          tension: 0.25
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: true } },
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }
+    });
+  }
+
+  // Subscriptions Chart
+  const subsCtx = document.getElementById('subsChart');
+  if (subsCtx) {
+    new Chart(subsCtx, {
+      type: 'line',
+      data: {
+        labels: {{ subs_labels | safe }},
+        datasets: [{
+          label: 'Active Subscriptions',
+          data: {{ subs_values | safe }},
+          borderWidth: 2,
+          borderColor: "#198754",
+          fill: false,
+          tension: 0.25
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: true } },
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }
+    });
+  }
+
+  // Revenue Chart
+  const revenueCtx = document.getElementById('revenueChart');
+  if (revenueCtx) {
+    new Chart(revenueCtx, {
+      type: 'bar',
+      data: {
+        labels: {{ revenue_labels | safe }},
+        datasets: [{
+          label: 'MRR ($)',
+          data: {{ revenue_values | safe }},
+          borderWidth: 1,
+          backgroundColor: "#ffc107"
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: true } },
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }
+    });
+  }
+
+  // Tokens Chart
+  const tokensCtx = document.getElementById('tokensChart');
+  if (tokensCtx) {
+    new Chart(tokensCtx, {
+      type: 'line',
+      data: {
+        labels: {{ tokens_labels | safe }},
+        datasets: [{
+          label: 'Tokens Used',
+          data: {{ tokens_values | safe }},
+          borderWidth: 2,
+          borderColor: "#dc3545",
+          fill: false,
+          tension: 0.25
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: true } },
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }
+    });
+  }
+</script>
+
+{% endblock %}

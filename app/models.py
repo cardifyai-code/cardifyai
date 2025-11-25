@@ -24,6 +24,7 @@ class User(db.Model, UserMixin):
     stripe_customer_id = db.Column(db.String(255))
     stripe_subscription_id = db.Column(db.String(255))
     stripe_price_id = db.Column(db.String(255))
+
     # free / basic / premium / professional
     plan = db.Column(db.String(50), default="free")
     is_active = db.Column(db.Boolean, default=True)
@@ -64,6 +65,7 @@ class User(db.Model, UserMixin):
     # =========================
     flashcards = db.relationship("Flashcard", backref="user", lazy=True)
     subscriptions = db.relationship("Subscription", backref="user", lazy=True)
+    visits = db.relationship("Visit", backref="user", lazy=True)
 
     def __repr__(self) -> str:
         return f"<User id={self.id} email={self.email} plan={self.plan}>"
@@ -141,3 +143,34 @@ class Flashcard(db.Model):
 
     def __repr__(self) -> str:
         return f"<Flashcard id={self.id} user_id={self.user_id}>"
+
+
+class Visit(db.Model):
+    """
+    Simple analytics table for page views / visits.
+    Used by admin analytics to track:
+      - path
+      - user id (if logged in)
+      - IP + user agent
+      - timestamp
+    """
+
+    __tablename__ = "visits"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        nullable=True,
+        index=True,
+    )
+
+    path = db.Column(db.String(255), nullable=False, index=True)
+    ip_address = db.Column(db.String(64))
+    user_agent = db.Column(db.String(512))
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def __repr__(self) -> str:
+        return f"<Visit id={self.id} path={self.path} user_id={self.user_id}>"

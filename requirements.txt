@@ -13,3 +13,5 @@ PyMuPDF
 openai>=1.0.0
 Werkzeug
 genanki
+itsdangerous
+blinker

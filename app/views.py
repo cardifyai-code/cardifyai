@@ -1,8 +1,9 @@
 # app/views.py
 
-from datetime import date
+from datetime import date, datetime, timedelta
 from io import BytesIO
-from collections import Counter
+from collections import Counter, defaultdict
+import json
 
 from flask import (
     Blueprint,
@@ -18,8 +19,8 @@ from flask import (
 from flask_login import login_required, current_user
 
 from . import db
-from .models import User
-from .ai import generate_flashcards_from_text  # <- direct AI call
+from .models import User, Subscription, Flashcard, Visit
+from .ai import generate_flashcards_from_text  # direct AI call
 from .pdf_utils import extract_text_from_pdf
 from .deck_export import (
     create_apkg_from_cards,
@@ -35,13 +36,22 @@ views_bp = Blueprint("views", __name__)
 # =============================
 
 PLAN_LIMITS = {
-    "free": 10,           # 10 cards/day
-    "basic": 200,         # 200 cards/day
-    "premium": 1_000,     # 1,000 cards/day
-    "professional": 5_000 # 5,000 cards/day
+    "free": 10,            # 10 cards/day
+    "basic": 200,          # 200 cards/day
+    "premium": 1_000,      # 1,000 cards/day
+    "professional": 5_000, # 5,000 cards/day
 }
 
 ADMIN_LIMIT = 3_000_000  # effectively unlimited for your admin account
+
+# =============================
+# OpenAI cost assumptions
+# (GPT-4o-mini-style pricing; adjust if you change models)
+# =============================
+
+# Dollars per token (0.15$ per 1M input, 0.60$ per 1M output)
+INPUT_TOKEN_RATE = 0.15 / 1_000_000
+OUTPUT_TOKEN_RATE = 0.60 / 1_000_000
 
 
 def get_daily_limit(user: User) -> int:
@@ -58,7 +68,29 @@ def ensure_daily_reset(user: User) -> None:
     if not user.daily_reset_date or user.daily_reset_date < today:
         user.daily_reset_date = today
         user.daily_cards_generated = 0
+        # Optionally reset daily token counters too
+        user.daily_input_tokens = 0
+        user.daily_output_tokens = 0
         db.session.commit()
+
+
+def log_visit(path: str) -> None:
+    """
+    Record a page visit in the Visit table.
+    Safe to call even if something goes wrong.
+    """
+    try:
+        v = Visit(
+            path=path,
+            user_id=current_user.id if getattr(current_user, "is_authenticated", False) else None,
+            ip_address=request.remote_addr or "",
+            user_agent=request.headers.get("User-Agent", "")[:512],
+        )
+        db.session.add(v)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Error logging visit for path %s", path)
 
 
 # =============================
@@ -68,6 +100,7 @@ def ensure_daily_reset(user: User) -> None:
 @views_bp.route("/", methods=["GET"])
 def index():
     """Landing page."""
+    log_visit("/")  # track homepage views
     if current_user.is_authenticated:
         return redirect(url_for("views.dashboard"))
     return render_template("index.html")
@@ -83,6 +116,7 @@ def dashboard():
     - Enforces daily limits
     - Stores cards in session for export/download
     """
+    log_visit("/dashboard")
     ensure_daily_reset(current_user)
 
     cards = session.get("cards", [])
@@ -104,7 +138,7 @@ def dashboard():
 
                 # Recompute stats for re-render
                 daily_limit = get_daily_limit(current_user)
-                used = current_user.daily_cards_generated
+                used = current_user.daily_cards_generated or 0
                 remaining = max(0, daily_limit - used)
 
                 return render_template(
@@ -125,7 +159,7 @@ def dashboard():
             flash("Please enter text or upload a PDF.", "warning")
 
             daily_limit = get_daily_limit(current_user)
-            used = current_user.daily_cards_generated
+            used = current_user.daily_cards_generated or 0
             remaining = max(0, daily_limit - used)
 
             return render_template(
@@ -149,7 +183,7 @@ def dashboard():
 
         # ------------ Enforce daily limits ---------------
         daily_limit = get_daily_limit(current_user)
-        remaining = max(0, daily_limit - current_user.daily_cards_generated)
+        remaining = max(0, daily_limit - (current_user.daily_cards_generated or 0))
 
         if remaining <= 0:
             flash(
@@ -164,7 +198,7 @@ def dashboard():
                 plan=current_user.plan,
                 stripe_public_key=Config.STRIPE_PUBLIC_KEY,
                 daily_limit=daily_limit,
-                used=current_user.daily_cards_generated,
+                used=current_user.daily_cards_generated or 0,
                 remaining=0,
                 is_admin=current_user.is_admin,
             )
@@ -185,7 +219,7 @@ def dashboard():
                     "warning",
                 )
                 daily_limit = get_daily_limit(current_user)
-                used = current_user.daily_cards_generated
+                used = current_user.daily_cards_generated or 0
                 remaining = max(0, daily_limit - used)
 
                 return render_template(
@@ -201,14 +235,28 @@ def dashboard():
 
             used = len(new_cards)
 
-            # Track usage
-            current_user.daily_cards_generated += used
-            # monthly tracking (optional, but fits your schema)
+            # Track usage (cards)
+            current_user.daily_cards_generated = (current_user.daily_cards_generated or 0) + used
             if current_user.cards_generated_this_month is None:
                 current_user.cards_generated_this_month = 0
             current_user.cards_generated_this_month += used
 
             db.session.commit()
+
+            # Optionally, persist cards for analytics
+            try:
+                for c in new_cards:
+                    fc = Flashcard(
+                        user_id=current_user.id,
+                        front=c.get("front", ""),
+                        back=c.get("back", ""),
+                        source_type="dashboard",
+                    )
+                    db.session.add(fc)
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                current_app.logger.exception("Error saving flashcards to DB")
 
             session["cards"] = new_cards
             cards = new_cards
@@ -222,7 +270,7 @@ def dashboard():
     # ----------------- Stats for GET / fallback --------------------
     ensure_daily_reset(current_user)
     daily_limit = get_daily_limit(current_user)
-    used = current_user.daily_cards_generated
+    used = current_user.daily_cards_generated or 0
     remaining = max(0, daily_limit - used)
 
     return render_template(
@@ -281,13 +329,24 @@ def download(fmt: str):
 @views_bp.route("/admin", methods=["GET"])
 @login_required
 def admin_dashboard():
-    """Admin-only panel showing all users, plan stats, and usage details."""
+    """
+    Admin-only panel showing:
+    - All users, their plans, and usage details
+    - Aggregated token usage + estimated cost
+    """
+    log_visit("/admin")
+
     if not current_user.is_admin:
         flash("Admin access only.", "danger")
         return redirect(url_for("views.dashboard"))
 
     users = User.query.order_by(User.created_at.desc()).all()
     plan_counts = Counter((u.plan or "free").lower() for u in users)
+
+    total_daily_input = 0
+    total_daily_output = 0
+    total_monthly_input = 0
+    total_monthly_output = 0
 
     user_rows = []
     for u in users:
@@ -302,6 +361,18 @@ def admin_dashboard():
             max(0, monthly_quota - monthly_used) if monthly_quota > 0 else None
         )
 
+        d_in = u.daily_input_tokens or 0
+        d_out = u.daily_output_tokens or 0
+        m_in = u.monthly_input_tokens or 0
+        m_out = u.monthly_output_tokens or 0
+
+        total_daily_input += d_in
+        total_daily_output += d_out
+        total_monthly_input += m_in
+        total_monthly_output += m_out
+
+        monthly_cost = (m_in * INPUT_TOKEN_RATE) + (m_out * OUTPUT_TOKEN_RATE)
+
         user_rows.append(
             {
                 "user": u,
@@ -312,8 +383,17 @@ def admin_dashboard():
                 "monthly_quota": monthly_quota,
                 "monthly_used": monthly_used,
                 "monthly_remaining": monthly_remaining,
+                "daily_input_tokens": d_in,
+                "daily_output_tokens": d_out,
+                "monthly_input_tokens": m_in,
+                "monthly_output_tokens": m_out,
+                "monthly_cost": monthly_cost,
             }
         )
+
+    total_monthly_cost = (total_monthly_input * INPUT_TOKEN_RATE) + (
+        total_monthly_output * OUTPUT_TOKEN_RATE
+    )
 
     return render_template(
         "admin.html",
@@ -321,4 +401,116 @@ def admin_dashboard():
         plan_counts=plan_counts,
         plan_limits=PLAN_LIMITS,
         total_users=len(users),
+        total_daily_input_tokens=total_daily_input,
+        total_daily_output_tokens=total_daily_output,
+        total_monthly_input_tokens=total_monthly_input,
+        total_monthly_output_tokens=total_monthly_output,
+        total_monthly_cost=total_monthly_cost,
+        input_token_rate=INPUT_TOKEN_RATE,
+        output_token_rate=OUTPUT_TOKEN_RATE,
+    )
+
+
+# =============================
+# Admin Analytics (charts, visits, subs)
+# =============================
+
+@views_bp.route("/admin/analytics", methods=["GET"])
+@login_required
+def admin_analytics():
+    """
+    Analytics panel for admins:
+    - Website visits per day (last 30 days)
+    - New subscriptions per day (last 30 days)
+    - Flashcards created per day (last 30 days)
+    - Aggregate token usage + cost
+    """
+    log_visit("/admin/analytics")
+
+    if not current_user.is_admin:
+        flash("Admin access only.", "danger")
+        return redirect(url_for("views.dashboard"))
+
+    today = date.today()
+    start_date = today - timedelta(days=29)
+    start_dt = datetime.combine(start_date, datetime.min.time())
+
+    # -------------------------
+    # Visits per day
+    # -------------------------
+    visits = (
+        Visit.query.filter(Visit.created_at >= start_dt)
+        .order_by(Visit.created_at.asc())
+        .all()
+    )
+    visits_by_day = defaultdict(int)
+    for v in visits:
+        d = v.created_at.date().isoformat()
+        visits_by_day[d] += 1
+
+    # -------------------------
+    # New subscriptions per day
+    # -------------------------
+    subs = (
+        Subscription.query.filter(Subscription.created_at >= start_dt)
+        .order_by(Subscription.created_at.asc())
+        .all()
+    )
+    subs_by_day = defaultdict(int)
+    for s in subs:
+        if s.created_at:
+            d = s.created_at.date().isoformat()
+            subs_by_day[d] += 1
+
+    # -------------------------
+    # Flashcards created per day
+    # -------------------------
+    flashcards = (
+        Flashcard.query.filter(Flashcard.created_at >= start_dt)
+        .order_by(Flashcard.created_at.asc())
+        .all()
+    )
+    cards_by_day = defaultdict(int)
+    for c in flashcards:
+        if c.created_at:
+            d = c.created_at.date().isoformat()
+            cards_by_day[d] += 1
+
+    # Normalize labels to a continuous 30-day window
+    labels = [
+        (start_date + timedelta(days=i)).isoformat()
+        for i in range(30)
+    ]
+
+    visits_series = [visits_by_day.get(d, 0) for d in labels]
+    subs_series = [subs_by_day.get(d, 0) for d in labels]
+    cards_series = [cards_by_day.get(d, 0) for d in labels]
+
+    # Aggregate token usage + cost (monthly)
+    users = User.query.all()
+    total_monthly_input = sum((u.monthly_input_tokens or 0) for u in users)
+    total_monthly_output = sum((u.monthly_output_tokens or 0) for u in users)
+    total_monthly_cost = (total_monthly_input * INPUT_TOKEN_RATE) + (
+        total_monthly_output * OUTPUT_TOKEN_RATE
+    )
+
+    # JSON for Chart.js
+    labels_json = json.dumps(labels)
+    visits_json = json.dumps(visits_series)
+    subs_json = json.dumps(subs_series)
+    cards_json = json.dumps(cards_series)
+
+    return render_template(
+        "admin_analytics.html",
+        labels_json=labels_json,
+        visits_json=visits_json,
+        subs_json=subs_json,
+        cards_json=cards_json,
+        total_monthly_input_tokens=total_monthly_input,
+        total_monthly_output_tokens=total_monthly_output,
+        total_monthly_cost=total_monthly_cost,
+        input_token_rate=INPUT_TOKEN_RATE,
+        output_token_rate=OUTPUT_TOKEN_RATE,
+        start_date=start_date,
+        end_date=today,
     )

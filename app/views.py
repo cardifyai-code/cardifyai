@@ -33,9 +33,9 @@ views_bp = Blueprint("views", __name__)
 
 PLAN_LIMITS = {
     "free": 10,            # 10 cards/day
-    "basic": 1_000,        # $3.99
-    "premium": 5_000,      # $7.99
-    "professional": 50_000 # $19.99
+    "basic": 200,          # 200 cards/day
+    "premium": 1_000,      # 1,000 cards/day
+    "professional": 5_000  # 5,000 cards/day
 }
 
 ADMIN_LIMIT = 3_000_000  # effectively unlimited for you

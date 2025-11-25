@@ -13,5 +13,6 @@ PyMuPDF
 openai>=1.0.0
 Werkzeug
 genanki
+celery==5.3.6
 redis==5.0.1
 rq==1.16.2

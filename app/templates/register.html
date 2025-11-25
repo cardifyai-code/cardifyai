@@ -1,12 +1,20 @@
 {% extends "base.html" %}
 {% block content %}
+
 <div class="row justify-content-center">
   <div class="col-md-6 col-lg-4 text-center">
+
     <h2 class="mb-4">Create Account</h2>
-    <p class="mb-4">Sign up instantly with your Google account.</p>
-    <a href="{{ url_for('auth.login') }}" class="btn btn-danger btn-lg">
+
+    <p class="mb-3">
+      Create your account instantly using Google. No passwords required.
+    </p>
+
+    <a href="{{ url_for('auth.login') }}" class="btn btn-danger btn-lg w-100">
       Continue with Google
     </a>
+
   </div>
 </div>
+
 {% endblock %}

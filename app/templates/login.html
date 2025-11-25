@@ -1,11 +1,20 @@
 {% extends "base.html" %}
 {% block content %}
+
 <div class="row justify-content-center">
   <div class="col-md-6 col-lg-4 text-center">
+
     <h2 class="mb-4">Log In</h2>
-    <a href="{{ url_for('auth.login') }}" class="btn btn-danger btn-lg">
+
+    <p class="text-muted mb-3">
+      Sign in securely using your Google account to start generating flashcards.
+    </p>
+
+    <a href="{{ url_for('auth.login') }}" class="btn btn-danger btn-lg w-100">
       Continue with Google
     </a>
+
   </div>
 </div>
+
 {% endblock %}

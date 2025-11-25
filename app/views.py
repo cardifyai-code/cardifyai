@@ -27,6 +27,7 @@ from .deck_export import (
 )
 from .config import Config
 from .tasks import enqueue_flashcard_job, get_job  # Celery background tasks
+from .ai import generate_flashcards_from_text      # fallback direct generation
 
 views_bp = Blueprint("views", __name__)
 
@@ -38,7 +39,7 @@ PLAN_LIMITS = {
     "free": 10,           # 10 cards/day
     "basic": 200,         # 200 cards/day
     "premium": 1_000,     # 1,000 cards/day
-    "professional": 5_000 # 5,000 cards/day
+    "professional": 5_000  # 5,000 cards/day
 }
 
 ADMIN_LIMIT = 3_000_000  # effectively unlimited for your admin account
@@ -79,7 +80,8 @@ def dashboard():
     """
     Main generator UI:
     - Text + PDF input
-    - Enqueues AI generator job in the background (Celery)
+    - Tries to enqueue AI generator job in the background (Celery)
+    - If Celery/Redis is unavailable, falls back to direct generation
     - Enforces daily limits
     - Polls job status stored in Redis and loads cards when complete
     """
@@ -273,8 +275,40 @@ def dashboard():
             return redirect(url_for("views.dashboard"))
 
         except Exception as e:
-            current_app.logger.exception("Error enqueuing background job")
-            flash(f"Error starting flashcard generation: {e}", "danger")
+            # If Celery/Redis fails, fall back to direct generation in-process
+            current_app.logger.exception(
+                "Error enqueuing background job; falling back to direct generation"
+            )
+
+            try:
+                cards = generate_flashcards_from_text(combined_text, num_cards)
+
+                if not cards:
+                    flash(
+                        "No flashcards were produced. Try using more detailed input.",
+                        "warning",
+                    )
+                else:
+                    used = len(cards)
+                    current_user.daily_cards_generated += used
+                    if current_user.cards_generated_this_month is None:
+                        current_user.cards_generated_this_month = 0
+                    current_user.cards_generated_this_month += used
+                    db.session.commit()
+
+                    session["cards"] = cards
+                    flash(
+                        f"Generated {used} flashcards (direct mode, worker unavailable).",
+                        "success",
+                    )
+
+                return redirect(url_for("views.dashboard"))
+
+            except Exception as inner:
+                current_app.logger.exception(
+                    "Error generating flashcards directly after Celery failure"
+                )
+                flash(f"Error generating flashcards: {inner}", "danger")
 
     # ----------------- Stats for GET / fallback --------------------
     ensure_daily_reset(current_user)

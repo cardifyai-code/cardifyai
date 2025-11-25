@@ -1,5 +1,4 @@
 from datetime import date
-import json
 from io import BytesIO
 
 from flask import (
@@ -19,46 +18,44 @@ from . import db
 from .models import User
 from .ai import generate_flashcards_from_text
 from .pdf_utils import extract_text_from_pdf
-from .deck_export import create_apkg_from_cards, create_csv_from_cards
+from .deck_export import (
+    create_apkg_from_cards,
+    create_csv_from_cards,
+    create_json_from_cards,
+)
 from .config import Config
 
 views_bp = Blueprint("views", __name__)
 
 # =============================
-# Card limits by tier/plan
+# Card limits by plan
 # =============================
 
-TIER_LIMITS = {
-    "free": 10,             # 10 cards/day
-    "basic": 1_000,         # Basic plan
-    "premium": 5_000,       # Premium plan
-    "professional": 50_000, # Professional plan
+PLAN_LIMITS = {
+    "free": 10,           # 10 cards/day
+    "basic": 1_000,       # $3.99
+    "premium": 5_000,     # $7.99
+    "professional": 50_000,  # $19.99
 }
 
 ADMIN_LIMIT = 3_000_000  # effectively unlimited for you
 
 
 def get_daily_limit(user: User) -> int:
-    """
-    Return the daily card limit based on the user's plan (or admin).
-    We also gracefully fall back to an old 'tier' attribute if it exists.
-    """
+    """Return the per-day flashcard limit based on the user's plan."""
     if getattr(user, "is_admin", False):
         return ADMIN_LIMIT
-
-    # Support both new "plan" and any legacy "tier" if present
-    plan_or_tier = (
-        getattr(user, "plan", None)
-        or getattr(user, "tier", None)
-        or "free"
-    )
-
-    tier_key = str(plan_or_tier).lower()
-    return TIER_LIMITS.get(tier_key, TIER_LIMITS["free"])
+    plan = (user.plan or "free").lower()
+    return PLAN_LIMITS.get(plan, PLAN_LIMITS["free"])
 
 
 def ensure_daily_reset(user: User) -> None:
-    """Reset daily counters if we've crossed a date boundary."""
+    """
+    Reset daily usage counters if a new day has started.
+    Assumes the User model has:
+      - daily_reset_date (Date)
+      - daily_cards_generated (Integer)
+    """
     today = date.today()
     if not user.daily_reset_date or user.daily_reset_date < today:
         user.daily_reset_date = today
@@ -99,9 +96,10 @@ def dashboard():
     cards = session.get("cards", [])
 
     if request.method == "POST":
+        # === Gather input ===
         raw_text = request.form.get("text_content", "").strip()
 
-        # Optional PDF upload
+        # PDF upload (optional)
         pdf_file = request.files.get("pdf_file")
         pdf_text = ""
         if pdf_file and pdf_file.filename:
@@ -111,22 +109,39 @@ def dashboard():
             except Exception as e:
                 current_app.logger.exception("Error reading PDF")
                 flash(f"Error reading PDF: {e}", "danger")
-                return render_template("dashboard.html", cards=cards)
+                return render_template(
+                    "dashboard.html",
+                    cards=cards,
+                    plan=current_user.plan,
+                    stripe_public_key=Config.STRIPE_PUBLIC_KEY,
+                )
 
-        # Combine text inputs
-        combined_text_parts = []
-        if raw_text:
-            combined_text_parts.append(raw_text)
-        if pdf_text:
-            combined_text_parts.append(pdf_text)
-
-        combined_text = "\n\n".join(combined_text_parts).strip()
+        # Combine text + PDF
+        combined_text = "\n\n".join(
+            [part for part in [raw_text, pdf_text] if part]
+        ).strip()
 
         if not combined_text:
             flash("Please enter text or upload a PDF.", "warning")
-            return render_template("dashboard.html", cards=cards)
+            return render_template(
+                "dashboard.html",
+                cards=cards,
+                plan=current_user.plan,
+                stripe_public_key=Config.STRIPE_PUBLIC_KEY,
+            )
 
-        # Enforce card limits
+        # Requested number of cards
+        try:
+            requested_num = int(request.form.get("num_cards", 10))
+        except ValueError:
+            requested_num = 10
+
+        if requested_num < 1:
+            requested_num = 1
+        if requested_num > 2_000:
+            requested_num = 2_000
+
+        # === Enforce daily limits ===
         daily_limit = get_daily_limit(current_user)
         remaining = max(0, daily_limit - current_user.daily_cards_generated)
         if remaining <= 0:
@@ -135,33 +150,37 @@ def dashboard():
                 "Upgrade your plan to generate more cards.",
                 "warning",
             )
-            return render_template("dashboard.html", cards=cards)
+            return render_template(
+                "dashboard.html",
+                cards=cards,
+                plan=current_user.plan,
+                stripe_public_key=Config.STRIPE_PUBLIC_KEY,
+            )
 
-        # User-requested number of cards (capped by remaining)
-        try:
-            requested_num = int(request.form.get("num_cards", "10"))
-        except ValueError:
-            requested_num = 10
-
-        if requested_num < 1:
-            requested_num = 1
-
-        max_cards = min(requested_num, remaining)
+        # Use the smaller of requested_num and remaining
+        num_cards = min(requested_num, remaining)
 
         try:
+            # NOTE: The ai.generate_flashcards_from_text function
+            # expects `num_cards`, NOT `max_cards`.
             new_cards = generate_flashcards_from_text(
                 combined_text,
-                max_cards=max_cards,
+                num_cards=num_cards,
             )
+
             if not new_cards:
                 flash(
                     "The AI didn’t return any flashcards. "
                     "Try using more detailed text.",
                     "warning",
                 )
-                return render_template("dashboard.html", cards=cards)
+                return render_template(
+                    "dashboard.html",
+                    cards=cards,
+                    plan=current_user.plan,
+                    stripe_public_key=Config.STRIPE_PUBLIC_KEY,
+                )
 
-            # Update usage and session
             used = len(new_cards)
             current_user.daily_cards_generated += used
             db.session.commit()
@@ -175,7 +194,7 @@ def dashboard():
             current_app.logger.exception("Error generating flashcards")
             flash(f"Error generating flashcards: {e}", "danger")
 
-    # Stats for UI
+    # === Stats for UI ===
     ensure_daily_reset(current_user)
     daily_limit = get_daily_limit(current_user)
     used = current_user.daily_cards_generated
@@ -184,6 +203,7 @@ def dashboard():
     return render_template(
         "dashboard.html",
         cards=cards,
+        plan=current_user.plan,
         daily_limit=daily_limit,
         used=used,
         remaining=remaining,
@@ -215,7 +235,7 @@ def download(fmt: str):
             download_name="cardifyai_deck.apkg",
         )
 
-    elif fmt == "csv":
+    if fmt == "csv":
         csv_bytes = create_csv_from_cards(cards)
         return send_file(
             csv_bytes,
@@ -224,9 +244,8 @@ def download(fmt: str):
             download_name="cardifyai_deck.csv",
         )
 
-    elif fmt == "json":
-        json_str = json.dumps(cards, ensure_ascii=False, indent=2)
-        json_bytes = BytesIO(json_str.encode("utf-8"))
+    if fmt == "json":
+        json_bytes = create_json_from_cards(cards)
         return send_file(
             json_bytes,
             mimetype="application/json",

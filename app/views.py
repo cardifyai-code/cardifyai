@@ -440,6 +440,7 @@ def admin_dashboard():
         paid_users=paid_users,
         total_estimated_revenue=total_estimated_revenue,
         total_token_cost=total_token_cost,
+        total_estimated_cost=total_token_cost,
         total_monthly_tokens=total_monthly_tokens,
         input_token_rate=INPUT_TOKEN_RATE,
         output_token_rate=OUTPUT_TOKEN_RATE,

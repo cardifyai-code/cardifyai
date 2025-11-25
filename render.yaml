@@ -1,0 +1,95 @@
+services:
+  # ============================
+  # Web service (Flask + Gunicorn)
+  # ============================
+  - type: web
+    name: cardifylabs-web
+    env: python
+    plan: starter        # or "free" / "standard" / whatever you use
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn main:app"
+    healthCheckPath: /
+
+    envVars:
+      # Python / Flask runtime
+      - key: PYTHON_VERSION
+        value: 3.11.9        # adjust if you prefer, but 3.11 is safe
+      - key: FLASK_ENV
+        value: production
+
+      # Core secrets (set values in Render dashboard or via secrets)
+      - key: SECRET_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+
+      # OpenAI
+      - key: OPENAI_API_KEY
+        sync: false
+
+      # Stripe
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PUBLIC_KEY
+        sync: false
+
+      # Google OAuth
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: OAUTHLIB_RELAX_TOKEN_SCOPE
+        value: "1"
+
+      # URLs (used by Config for redirects / callbacks)
+      - key: FRONTEND_URL
+        value: "https://cardifylabs.com"
+      - key: BACKEND_URL
+        value: "https://cardifylabs.com"
+
+  # ============================
+  # Cron job: monthly quota reset
+  # ============================
+  - type: cron
+    name: cardifylabs-monthly-quota-reset
+    env: python
+    plan: starter
+    schedule: "0 0 1 * *"     # at 00:00 on day-of-month 1 (UTC)
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python -m app.tasks"
+
+    envVars:
+      # Same env as web, so app.config + DB work the same
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: FLASK_ENV
+        value: production
+
+      - key: SECRET_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+
+      - key: OPENAI_API_KEY
+        sync: false
+
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PUBLIC_KEY
+        sync: false
+
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: OAUTHLIB_RELAX_TOKEN_SCOPE
+        value: "1"
+
+      - key: FRONTEND_URL
+        value: "https://cardifylabs.com"
+      - key: BACKEND_URL
+        value: "https://cardifylabs.com"

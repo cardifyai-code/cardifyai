@@ -1,6 +1,6 @@
 # app/models.py
 
-from datetime import datetime
+from datetime import datetime, date
 from flask_login import UserMixin
 
 from . import db
@@ -11,35 +11,57 @@ class User(db.Model, UserMixin):
 
     id = db.Column(db.Integer, primary_key=True)
 
+    # =========================
     # Auth
+    # =========================
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255))  # optional if using Google-only login
     google_id = db.Column(db.String(255), unique=True)
 
+    # =========================
     # Stripe / billing
+    # =========================
     stripe_customer_id = db.Column(db.String(255))
     stripe_subscription_id = db.Column(db.String(255))
     stripe_price_id = db.Column(db.String(255))
-    plan = db.Column(db.String(50), default="free")  # free/basic/premium/professional
+    # free / basic / premium / professional
+    plan = db.Column(db.String(50), default="free")
     is_active = db.Column(db.Boolean, default=True)
     is_admin = db.Column(db.Boolean, default=False)
 
-    # Monthly quotas
+    # =========================
+    # Monthly quotas (by cards)
+    # =========================
     monthly_card_quota = db.Column(db.Integer, default=1000)
     cards_generated_this_month = db.Column(db.Integer, default=0)
     quota_reset_at = db.Column(db.DateTime)
 
-    # Daily quotas
+    # =========================
+    # Daily quotas (by cards)
+    # =========================
     daily_cards_generated = db.Column(db.Integer, default=0)
     daily_reset_date = db.Column(db.Date)
 
+    # =========================
+    # Token usage tracking (OpenAI)
+    # =========================
+    # These let you track real API cost per user if you want later.
+    daily_input_tokens = db.Column(db.BigInteger, default=0)
+    daily_output_tokens = db.Column(db.BigInteger, default=0)
+    monthly_input_tokens = db.Column(db.BigInteger, default=0)
+    monthly_output_tokens = db.Column(db.BigInteger, default=0)
+
+    # =========================
     # Timestamps
+    # =========================
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(
         db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
 
+    # =========================
     # Relationships
+    # =========================
     flashcards = db.relationship("Flashcard", backref="user", lazy=True)
     subscriptions = db.relationship("Subscription", backref="user", lazy=True)
 
@@ -50,6 +72,16 @@ class User(db.Model, UserMixin):
     def is_premium(self) -> bool:
         """Treat any paid plan as premium."""
         return self.plan in {"basic", "premium", "professional"}
+
+    @property
+    def daily_total_tokens(self) -> int:
+        """Convenience: total daily tokens (input + output)."""
+        return (self.daily_input_tokens or 0) + (self.daily_output_tokens or 0)
+
+    @property
+    def monthly_total_tokens(self) -> int:
+        """Convenience: total monthly tokens (input + output)."""
+        return (self.monthly_input_tokens or 0) + (self.monthly_output_tokens or 0)
 
 
 class Subscription(db.Model):

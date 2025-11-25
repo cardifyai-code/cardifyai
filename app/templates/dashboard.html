@@ -16,9 +16,15 @@
   <strong>Free: 10/day | Basic: 200/day | Premium: 1,000/day | Professional: 5,000/day</strong>
 </p>
 
-<div class="row mb-4">
+<div id="loadingContainer" class="alert alert-info d-none">
+  <strong>Generating flashcards...</strong><br>
+  This may take 10–30 seconds depending on text length.
+  <div class="mt-2 spinner-border text-primary" role="status"></div>
+</div>
+
+<div class="row mb-4" id="mainFormContainer">
   <div class="col-lg-8">
-    <form method="post" enctype="multipart/form-data" class="mb-4">
+    <form id="generatorForm" method="post" enctype="multipart/form-data" class="mb-4">
 
       <!-- Text Input -->
       <div class="mb-3">
@@ -63,7 +69,9 @@
         </div>
       </div>
 
-      <button type="submit" class="btn btn-primary">Generate Flashcards</button>
+      <button id="generateBtn" type="submit" class="btn btn-primary w-100">
+        Generate Flashcards
+      </button>
     </form>
   </div>
 
@@ -82,7 +90,6 @@
           <li><strong>Professional – $19.99/mo</strong>: 5,000 cards/day</li>
         </ul>
 
-        <!-- Updated to billing.checkout -->
         <a href="{{ url_for('billing.checkout', plan='basic') }}"
            class="btn btn-outline-primary w-100 mb-2">
           Upgrade to Basic
@@ -107,6 +114,8 @@
   </div>
 </div>
 
+<!-- ========== RESULTS ========== -->
+
 {% if cards %}
   <hr>
   <h4 class="mb-3">Preview ({{ cards|length }} cards)</h4>
@@ -130,5 +139,44 @@
     Download JSON
   </a>
 {% endif %}
+
+<!-- ========== BACKGROUND JOB JS ========== -->
+
+{% if job_id %}
+<script>
+  const jobId = "{{ job_id }}";
+  const loadingDiv = document.getElementById("loadingContainer");
+  const mainDiv = document.getElementById("mainFormContainer");
+
+  // Show loading UI
+  loadingDiv.classList.remove("d-none");
+  mainDiv.classList.add("d-none");
+
+  function pollJob() {
+    fetch(`/job_status/${jobId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.status === "finished") {
+          window.location = "/dashboard";  // reload with results
+        } else if (data.status === "failed") {
+          loadingDiv.innerHTML =
+            "<div class='alert alert-danger'>Flashcard generation failed. Try again.</div>";
+        } else {
+          setTimeout(pollJob, 2000);
+        }
+      });
+  }
+
+  pollJob();
+</script>
+{% endif %}
+
+<script>
+  // UX: When form is submitted, show loading state immediately
+  document.getElementById("generatorForm").addEventListener("submit", () => {
+    document.getElementById("loadingContainer").classList.remove("d-none");
+    document.getElementById("mainFormContainer").classList.add("d-none");
+  });
+</script>
 
 {% endblock %}

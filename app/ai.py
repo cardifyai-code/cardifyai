@@ -1,13 +1,14 @@
 # app/ai.py
 
 import json
-import math
 import re
 from typing import List, Dict
 
 from openai import OpenAI
+from flask_login import current_user
 
 from .config import Config, SYSTEM_PROMPT
+from . import db
 
 client = OpenAI()
 
@@ -44,7 +45,7 @@ def _segment_text(text: str, max_chars: int = 6000) -> List[str]:
     cut at paragraph or sentence boundaries.
 
     We segment so that:
-      - We can send each segment to OpenAI within token limits.
+      - We can send each segment to OpenAI within limits.
       - We still 'use' all of the text by processing every segment.
     """
     text = _clean_text(text)
@@ -135,6 +136,43 @@ def _normalize_cards(raw: str) -> List[Dict[str, str]]:
     return cards
 
 
+def _record_token_usage(response) -> None:
+    """
+    Update current_user's token counters from an OpenAI response, if available.
+    Safe to call even if there's no logged-in user or no usage info.
+    """
+    if not getattr(current_user, "is_authenticated", False):
+        return
+
+    usage = getattr(response, "usage", None)
+    if not usage:
+        return
+
+    # Newer OpenAI clients often expose usage as .input_tokens / .output_tokens
+    # but we also fall back to prompt_tokens / completion_tokens if needed.
+    in_tokens = getattr(usage, "input_tokens", None)
+    out_tokens = getattr(usage, "output_tokens", None)
+
+    if in_tokens is None and hasattr(usage, "prompt_tokens"):
+        in_tokens = usage.prompt_tokens
+    if out_tokens is None and hasattr(usage, "completion_tokens"):
+        out_tokens = usage.completion_tokens
+
+    in_tokens = int(in_tokens or 0)
+    out_tokens = int(out_tokens or 0)
+
+    # Update user fields
+    current_user.daily_input_tokens = (current_user.daily_input_tokens or 0) + in_tokens
+    current_user.daily_output_tokens = (current_user.daily_output_tokens or 0) + out_tokens
+    current_user.monthly_input_tokens = (current_user.monthly_input_tokens or 0) + in_tokens
+    current_user.monthly_output_tokens = (current_user.monthly_output_tokens or 0) + out_tokens
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
 def _call_openai_for_segment(
     segment_text: str,
     segment_index: int,
@@ -150,6 +188,7 @@ def _call_openai_for_segment(
           * This is segment i of N
           * Use all important info from this segment
           * Produce up to 'target_cards' cards
+      - Extra constraints to force concrete, passage-anchored answers.
     """
     if target_cards <= 0:
         return []
@@ -165,6 +204,15 @@ Your job is to:
 2. Turn those concepts into high-quality flashcards.
 3. Use as much of the information in this segment as possible,
    focusing on distinct, non-trivial facts.
+
+STRICT ANSWER RULES:
+- Every answer must be explicitly and unambiguously supported by the segment text.
+- Do NOT create questions whose answers require outside knowledge, personal opinion,
+  or multiple equally correct answers.
+- Avoid vague or conceptual questions like "Why is X important?" unless the passage
+  explicitly gives a very specific answer.
+- Prefer concrete facts, definitions, lists, cause-effect relationships, numerical values,
+  and clearly stated comparisons or distinctions from the text.
 
 Return up to {target_cards} flashcards for **this segment** as JSON,
 following the system instructions.
@@ -182,6 +230,9 @@ Here is the segment text:
         temperature=0.3,
     )
 
+    # Track token usage on the current user, if possible
+    _record_token_usage(response)
+
     content = response.choices[0].message.content or ""
     return _normalize_cards(content)
 
@@ -198,7 +249,8 @@ def generate_flashcards_from_text(
         * "Use all the important info in this segment."
         * "Return up to X cards for this segment."
       (this combines the 'identify concepts' and 'final card writing'
-       into a single call per segment, as you requested).
+       into a single call per segment).
+    - Enforces that answers are overtly derivable from the passage (see instructions).
     - Merges and deduplicates cards across segments.
     - Trims to at most num_cards cards.
     """
@@ -226,7 +278,11 @@ def generate_flashcards_from_text(
             break
 
         # Allocate cards roughly proportional to segment length
-        proportion = len(segment) / total_length if total_length > 0 else 1 / len(segments)
+        if total_length > 0:
+            proportion = len(segment) / total_length
+        else:
+            proportion = 1 / len(segments)
+
         # At least 1 card, but not more than remaining
         segment_target = max(1, int(round(proportion * num_cards)))
         if segment_target > remaining_cards:

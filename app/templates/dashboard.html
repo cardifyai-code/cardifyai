@@ -5,7 +5,7 @@
 
 <p class="mb-2">
   Plan:
-  <strong>{{ (current_user.tier or 'free')|capitalize }}</strong>
+  <strong>{{ (current_user.plan or 'free')|capitalize }}</strong>
   {% if current_user.is_admin %}
     <span class="badge bg-warning text-dark ms-1">Admin</span>
   {% endif %}
@@ -82,15 +82,15 @@
           <li><strong>Professional – $19.99/mo</strong>: 50,000 cards/day</li>
         </ul>
 
-        <a href="{{ url_for('billing.subscribe', plan='basic') }}"
+        <a href="{{ url_for('billing.checkout', plan='basic') }}"
            class="btn btn-outline-primary w-100 mb-2">
           Upgrade to Basic
         </a>
-        <a href="{{ url_for('billing.subscribe', plan='premium') }}"
+        <a href="{{ url_for('billing.checkout', plan='premium') }}"
            class="btn btn-primary w-100 mb-2">
           Upgrade to Premium
         </a>
-        <a href="{{ url_for('billing.subscribe', plan='professional') }}"
+        <a href="{{ url_for('billing.checkout', plan='professional') }}"
            class="btn btn-dark w-100 mb-2">
           Upgrade to Professional
         </a>

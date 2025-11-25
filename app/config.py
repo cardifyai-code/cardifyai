@@ -1,8 +1,9 @@
+# app/config.py
+
 import os
 from dotenv import load_dotenv
 
-# Load environment variables for local development.
-# On Render, env vars are injected into the environment directly.
+# Load environment variables (for local development only)
 load_dotenv()
 
 
@@ -16,13 +17,7 @@ class Config:
     # =============================
     # Database
     # =============================
-    # On Render, set DATABASE_URL in the dashboard.
-    # Example (internal URL from Render Postgres):
-    # postgresql://user:pass@host/dbname
-    SQLALCHEMY_DATABASE_URI = os.getenv(
-        "DATABASE_URL",
-        "sqlite:///ankifyai.sqlite3",  # fallback for local dev
-    )
+    SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # =============================
@@ -60,15 +55,30 @@ SYSTEM_PROMPT = """
 You are an AI that generates high-quality study flashcards for students
 (medical, law, and other intensive fields).
 
-Requirements:
-- Read the provided source text carefully.
-- Identify the most important, testable concepts.
-- For each concept, create a flashcard with:
-  - "front": a clear question, prompt, or term.
-  - "back": a concise but accurate answer or explanation.
-- Prefer high-yield concepts over trivial details.
-- Avoid duplicate or near-duplicate cards.
-- Use simple, direct language.
+You will receive text that may have already been cleaned and segmented.
+Treat each request independently: do NOT assume you see the entire source,
+only the segment you are given.
+
+Your job for EACH request:
+
+1. Read the provided text carefully, line by line.
+2. Identify every important, testable concept in that text.
+   - Facts, mechanisms, definitions, formulas, lists, exceptions,
+     common pitfalls, and any detail likely to be tested.
+3. Turn those concepts into flashcards by:
+   - "front": a clear question, prompt, or term.
+   - "back": a concise but accurate answer or explanation.
+4. Use as much of the important information in the text as possible.
+   - Prefer many focused, granular cards to a few vague ones.
+   - Avoid trivial or purely stylistic details.
+5. Avoid duplicate or near-duplicate cards.
+6. Use simple, direct language that a student could quickly review.
+
+VERY IMPORTANT:
+- You MUST base your cards ONLY on the text in the request.
+- Do NOT introduce outside facts or 'common knowledge' that isn't
+  clearly implied by the text.
+- Do NOT skip important concepts: assume the user wants maximal coverage.
 
 Output format:
 Return ONLY valid JSON in this exact structure:

@@ -19,7 +19,6 @@ from flask_login import login_required, current_user
 
 from . import db
 from .models import User
-from .ai import generate_flashcards_from_text  # still imported for worker use / local debug
 from .pdf_utils import extract_text_from_pdf
 from .deck_export import (
     create_apkg_from_cards,
@@ -27,7 +26,7 @@ from .deck_export import (
     create_json_from_cards,
 )
 from .config import Config
-from .tasks import enqueue_flashcard_job, get_job  # <-- NEW: background tasks
+from .tasks import enqueue_flashcard_job, get_job  # Celery background tasks
 
 views_bp = Blueprint("views", __name__)
 
@@ -39,7 +38,7 @@ PLAN_LIMITS = {
     "free": 10,           # 10 cards/day
     "basic": 200,         # 200 cards/day
     "premium": 1_000,     # 1,000 cards/day
-    "professional": 5_000  # 5,000 cards/day
+    "professional": 5_000 # 5,000 cards/day
 }
 
 ADMIN_LIMIT = 3_000_000  # effectively unlimited for your admin account
@@ -80,54 +79,93 @@ def dashboard():
     """
     Main generator UI:
     - Text + PDF input
-    - Enqueues AI generator job in the background
+    - Enqueues AI generator job in the background (Celery)
     - Enforces daily limits
-    - Polls job status and pulls cards from job result
+    - Polls job status stored in Redis and loads cards when complete
     """
     ensure_daily_reset(current_user)
 
-    # ----------------------------
-    # Handle background job status
-    # ----------------------------
-    job_pending = False
     cards = session.get("cards", [])
+    job_pending = False
 
+    # ---------------------------------
+    # Check status of any existing job
+    # ---------------------------------
     job_id = session.get("job_id")
     if job_id:
         try:
-            job = get_job(job_id)
-            if job.is_failed:
-                current_app.logger.error("Flashcard job %s failed", job_id)
+            job_data = get_job(job_id)  # returns dict or None
+            if not job_data:
+                # Job disappeared or expired
+                current_app.logger.warning("Job %s not found in Redis", job_id)
                 flash(
-                    "There was an error generating your flashcards. Please try again.",
+                    "We couldn't find your flashcard job. Please try again.",
                     "danger",
                 )
                 session.pop("job_id", None)
-            elif job.is_finished:
-                result = job.result or []
-                if isinstance(result, list):
-                    cards = result
-                    session["cards"] = cards
-                    flash(f"Generated {len(cards)} flashcards.", "success")
-                else:
+            else:
+                status = job_data.get("status")
+                if status == "error":
+                    err_msg = job_data.get("error", "Unknown error")
+                    current_app.logger.error(
+                        "Flashcard job %s errored: %s", job_id, err_msg
+                    )
                     flash(
-                        "Generation completed but returned an unexpected result.",
+                        "There was an error generating your flashcards. "
+                        "Please try again.",
                         "danger",
                     )
-                session.pop("job_id", None)
-            else:
-                # Still running
-                job_pending = True
-        except Exception as e:
+                    session.pop("job_id", None)
+
+                elif status in ("queued", "running"):
+                    # Still in progress
+                    job_pending = True
+
+                elif status == "complete":
+                    result = job_data.get("result") or []
+                    if isinstance(result, list):
+                        cards = result
+                        session["cards"] = cards
+
+                        # Count usage *once* when job completes
+                        used = len(cards)
+                        if used > 0:
+                            current_user.daily_cards_generated += used
+                            # Monthly tracking (optional but already in your model)
+                            if current_user.cards_generated_this_month is None:
+                                current_user.cards_generated_this_month = 0
+                            current_user.cards_generated_this_month += used
+                            db.session.commit()
+
+                        flash(f"Generated {used} flashcards.", "success")
+                    else:
+                        flash(
+                            "Generation completed but returned an unexpected result.",
+                            "danger",
+                        )
+
+                    # Job consumed, stop checking on subsequent requests
+                    session.pop("job_id", None)
+                else:
+                    # Unknown status, be safe
+                    current_app.logger.warning(
+                        "Job %s returned unknown status: %s", job_id, status
+                    )
+                    flash(
+                        "Unexpected job status while generating flashcards.",
+                        "danger",
+                    )
+                    session.pop("job_id", None)
+        except Exception:
             current_app.logger.exception("Error checking background job")
             flash("Error checking flashcard generation job.", "danger")
             session.pop("job_id", None)
 
-    # ----------------------------
-    # Handle POST: enqueue new job
-    # ----------------------------
+    # ---------------------------------
+    # Handle new POST: enqueue new job
+    # ---------------------------------
     if request.method == "POST":
-        # If a job is already running, stop user from stacking requests
+        # Don't allow stacking background jobs in this simple version
         if session.get("job_id"):
             flash(
                 "A flashcard generation job is already in progress. "
@@ -149,18 +187,18 @@ def dashboard():
             except Exception as e:
                 current_app.logger.exception("Error reading PDF")
                 flash(f"Error reading PDF: {e}", "danger")
+                # Re-render with current stats
+                daily_limit = get_daily_limit(current_user)
+                used = current_user.daily_cards_generated
+                remaining = max(0, daily_limit - used)
                 return render_template(
                     "dashboard.html",
                     cards=cards,
                     plan=current_user.plan,
                     stripe_public_key=Config.STRIPE_PUBLIC_KEY,
-                    daily_limit=get_daily_limit(current_user),
-                    used=current_user.daily_cards_generated,
-                    remaining=max(
-                        0,
-                        get_daily_limit(current_user)
-                        - current_user.daily_cards_generated,
-                    ),
+                    daily_limit=daily_limit,
+                    used=used,
+                    remaining=remaining,
                     is_admin=current_user.is_admin,
                     job_pending=job_pending,
                 )
@@ -169,18 +207,17 @@ def dashboard():
 
         if not combined_text:
             flash("Please enter text or upload a PDF.", "warning")
+            daily_limit = get_daily_limit(current_user)
+            used = current_user.daily_cards_generated
+            remaining = max(0, daily_limit - used)
             return render_template(
                 "dashboard.html",
                 cards=cards,
                 plan=current_user.plan,
                 stripe_public_key=Config.STRIPE_PUBLIC_KEY,
-                daily_limit=get_daily_limit(current_user),
-                used=current_user.daily_cards_generated,
-                remaining=max(
-                    0,
-                    get_daily_limit(current_user)
-                    - current_user.daily_cards_generated,
-                ),
+                daily_limit=daily_limit,
+                used=used,
+                remaining=remaining,
                 is_admin=current_user.is_admin,
                 job_pending=job_pending,
             )
@@ -221,11 +258,11 @@ def dashboard():
         try:
             job_id = enqueue_flashcard_job(
                 user_id=current_user.id,
-                source_text=combined_text,
+                text=combined_text,
                 num_cards=num_cards,
             )
             session["job_id"] = job_id
-            # Clear any old cards from session; new ones will arrive when job completes
+            # Clear any old cards from session; new ones will replace them
             session.pop("cards", None)
 
             flash(
@@ -239,7 +276,7 @@ def dashboard():
             current_app.logger.exception("Error enqueuing background job")
             flash(f"Error starting flashcard generation: {e}", "danger")
 
-    # ----------------- Stats --------------------
+    # ----------------- Stats for GET / fallback --------------------
     ensure_daily_reset(current_user)
     daily_limit = get_daily_limit(current_user)
     used = current_user.daily_cards_generated

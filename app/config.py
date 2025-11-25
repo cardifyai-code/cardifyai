@@ -1,119 +1,123 @@
 # app/config.py
 
 import os
-from dotenv import load_dotenv
-
-# Load environment variables (for local development only)
-load_dotenv()
+from textwrap import dedent
 
 
 class Config:
-    # =============================
-    # Flask
-    # =============================
-    SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "dev_secret_key")
-    FLASK_ENV = os.getenv("FLASK_ENV", "development")
+    # ------------------------------------------------------------------
+    # Core Flask / SQLAlchemy
+    # ------------------------------------------------------------------
+    SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key")
 
-    # =============================
-    # Database
-    # =============================
-    SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL")
+    # Render usually sets DATABASE_URL; for local dev we fall back to SQLite
+    _db_url = os.environ.get("DATABASE_URL", "sqlite:///cardify.db")
+    # Optional: fix old postgres:// URL format for SQLAlchemy
+    if _db_url.startswith("postgres://"):
+        _db_url = _db_url.replace("postgres://", "postgresql://", 1)
+
+    SQLALCHEMY_DATABASE_URI = _db_url
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    # =============================
-    # OpenAI
-    # =============================
-    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-    OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-
-    # =============================
-    # Stripe
-    # =============================
-    STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
-    STRIPE_PUBLIC_KEY = os.getenv("STRIPE_PUBLIC_KEY")
-    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
-
-    STRIPE_BASIC_PRICE_ID = os.getenv("STRIPE_BASIC_PRICE_ID")
-    STRIPE_PREMIUM_PRICE_ID = os.getenv("STRIPE_PREMIUM_PRICE_ID")
-    STRIPE_PROFESSIONAL_PRICE_ID = os.getenv("STRIPE_PROFESSIONAL_PRICE_ID")
-
-    # =============================
+    # ------------------------------------------------------------------
     # Google OAuth
-    # =============================
-    GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
-    GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+    # ------------------------------------------------------------------
+    GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+    GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+    # The URL where Google redirects after login
+    GOOGLE_DISCOVERY_URL = (
+        "https://accounts.google.com/.well-known/openid-configuration"
+    )
 
-    # Admin email for superuser privileges
-    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").lower()
+    # ------------------------------------------------------------------
+    # Stripe Billing
+    # ------------------------------------------------------------------
+    STRIPE_PUBLIC_KEY = os.environ.get("STRIPE_PUBLIC_KEY", "")
+    STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+    STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+
+    # ------------------------------------------------------------------
+    # OpenAI
+    # ------------------------------------------------------------------
+    OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+    # You’re using GPT-4o-mini in the app
+    OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+    # ------------------------------------------------------------------
+    # Celery / Redis (for background flashcard jobs)
+    # ------------------------------------------------------------------
+    # IMPORTANT:
+    #  - On Render, set REDIS_URL in the Dashboard (e.g. provided by Redis add-on)
+    #  - Locally, this defaults to a local Redis instance
+    REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+
+    # Use the same Redis URL for result backend
+    CELERY_BROKER_URL = REDIS_URL
+    CELERY_RESULT_BACKEND = REDIS_URL
+
+    # ------------------------------------------------------------------
+    # Misc
+    # ------------------------------------------------------------------
+    # How long (seconds) a flashcard generation job is allowed to run
+    CELERY_TASK_TIME_LIMIT = int(os.environ.get("CELERY_TASK_TIME_LIMIT", "900"))  # 15 min
+    CELERY_TASK_SOFT_TIME_LIMIT = int(
+        os.environ.get("CELERY_TASK_SOFT_TIME_LIMIT", "840")
+    )  # 14 min
 
 
-# =====================================================
-# SYSTEM_PROMPT for flashcard generation
-# =====================================================
+# ----------------------------------------------------------------------
+# System prompt for OpenAI (imported as SYSTEM_PROMPT in app/ai.py)
+# ----------------------------------------------------------------------
 
-SYSTEM_PROMPT = """
-You are an AI that generates high-quality study flashcards for students
-(medical, law, and other intensive fields).
+SYSTEM_PROMPT = dedent(
+    """
+    You are CardifyAI, an expert educational assistant that turns source text
+    (lectures, textbook paragraphs, study notes, etc.) into high-quality,
+    direct-answer flashcards.
 
-You will receive text that may have already been cleaned and segmented.
-Treat each request independently: do NOT assume you see the entire source,
-only the segment you are given.
+    Absolute rules:
+    - You MUST return JSON only: a list of objects with "front" and "back" keys.
+    - Do NOT include any explanation, commentary, or markdown around the JSON.
+    - Each "front" is the question or prompt.
+    - Each "back" is the single, explicit, overt answer.
 
-Your job for EACH request:
+    Flashcard quality rules:
+    - Every card’s answer MUST be directly supported by the provided text.
+      Never invent facts that aren’t in the passage.
+    - Avoid vague or conceptual questions with many possible answers.
+      The student should be able to POINT to the exact line(s) in the passage
+      that contain the answer.
+    - Prefer:
+        - definition recall
+        - key numbers (cutoffs, doses, thresholds, dates, etc.)
+        - cause → effect
+        - mechanism → outcome
+        - “X vs Y” comparison
+        - stepwise processes, broken into multiple cards if needed.
+    - If a concept could produce multiple distinct questions, create multiple cards:
+      each card should test exactly ONE clear idea.
+    - Make questions as specific as possible:
+        - Bad: "What are some features of heart failure?"
+        - Good: "Which symptoms in the passage indicate left-sided heart failure?"
+    - Do NOT ask about information that is NOT present in the text.
+    - Avoid yes/no questions unless the answer in the passage is explicitly yes or no.
 
-1. Read the provided text carefully, line by line.
-2. Identify every important, testable concept in that text.
-   - Facts, mechanisms, definitions, formulas, lists, exceptions,
-     common pitfalls, and any detail likely to be tested.
-3. Turn those concepts into flashcards by:
-   - "front": a clear question, prompt, or term.
-   - "back": a concise but accurate answer or explanation.
+    Formatting rules:
+    - Output: JSON array only.
+        [
+          {"front": "Question 1?", "back": "Answer 1."},
+          {"front": "Question 2?", "back": "Answer 2."}
+        ]
+    - No trailing commas, no comments, no surrounding text.
+    - Keep each answer concise but complete enough for spaced repetition review.
 
-STRICT RULES ABOUT QUESTION / ANSWER STYLE:
+    When the user provides a segment of text and a target number of cards:
+    - Use as much of the important information in that segment as possible.
+    - Focus on high-yield, testable facts.
+    - If the segment is short and does not reasonably support the target number
+      of distinct, non-trivial cards, return fewer cards rather than forcing
+      low-quality or redundant questions.
 
-- Every card MUST have **one clearly correct answer** that is **explicitly stated
-  or directly implied in the text**.
-- Do NOT write vague or open-ended questions such as:
-  - "Why is X important?"
-  - "Discuss the significance of Y."
-  - "How could this be applied in practice?"
-- Avoid questions where many different answers could be reasonable.
-- Write questions so that someone who has read ONLY this passage would know
-  exactly what to answer.
-- If you need to, you may phrase questions like:
-  - "According to the passage, what is ...?"
-  - "In the text, which term is defined as ...?"
-  - "According to the passage, what happens when ...?"
-- If the text does NOT give a clear, overt answer for a concept, you must
-  either:
-  - skip that concept, OR
-  - rephrase the question so that the answer is a direct quote or a single,
-    clearly stated fact from the passage.
-
-CONTENT COVERAGE:
-
-- Use as much of the **important** information in the text as possible.
-  - Prefer many focused, granular cards to a few vague ones.
-  - However, do NOT invent facts that are not in the text.
-- You may combine closely related details into a single card when it makes
-  the answer clearer (e.g., short bulleted lists or "3 main steps are: ...").
-- Avoid trivial or purely stylistic details.
-
-OTHER REQUIREMENTS:
-
-- Avoid duplicate or near-duplicate cards.
-- Use simple, direct language that a student could quickly review.
-- Do NOT add commentary, jokes, or meta explanations.
-
-Output format:
-Return ONLY valid JSON in this exact structure:
-
-[
-  {"front": "Question or term 1", "back": "Answer or explanation 1"},
-  {"front": "Question or term 2", "back": "Answer or explanation 2"},
-  ...
-]
-
-Do not include any extra commentary, markdown, or text outside
-of the JSON array.
-"""
+    Remember: the key is precision and direct answerability from the passage.
+    """
+).strip()

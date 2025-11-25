@@ -32,10 +32,10 @@ views_bp = Blueprint("views", __name__)
 # =============================
 
 PLAN_LIMITS = {
-    "free": 10,           # 10 cards/day
-    "basic": 1_000,       # $3.99
-    "premium": 5_000,     # $7.99
-    "professional": 50_000,  # $19.99
+    "free": 10,            # 10 cards/day
+    "basic": 1_000,        # $3.99
+    "premium": 5_000,      # $7.99
+    "professional": 50_000 # $19.99
 }
 
 ADMIN_LIMIT = 3_000_000  # effectively unlimited for you
@@ -161,8 +161,7 @@ def dashboard():
         num_cards = min(requested_num, remaining)
 
         try:
-            # NOTE: The ai.generate_flashcards_from_text function
-            # expects `num_cards`, NOT `max_cards`.
+            # The AI function expects `num_cards`
             new_cards = generate_flashcards_from_text(
                 combined_text,
                 num_cards=num_cards,

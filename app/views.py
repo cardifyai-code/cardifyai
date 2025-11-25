@@ -31,9 +31,9 @@ from .config import Config
 
 views_bp = Blueprint("views", __name__)
 
-# =============================
+# ============================================================
 # Card limits by plan
-# =============================
+# ============================================================
 
 PLAN_LIMITS = {
     "free": 10,            # 10 cards/day
@@ -44,30 +44,25 @@ PLAN_LIMITS = {
 
 ADMIN_LIMIT = 3_000_000  # effectively unlimited for your admin account
 
-# =============================
-# Plan prices (for revenue est.)
-# Adjust these to match your Stripe prices.
-# =============================
+# ============================================================
+# OpenAI cost assumptions (approx GPT-4o-mini pricing)
+# Adjust if you change model or pricing
+# ============================================================
 
-PLAN_PRICES = {
-    "free": 0.0,
-    "basic": 9.0,
-    "premium": 19.0,
-    "professional": 49.0,
-}
-
-# =============================
-# OpenAI cost assumptions
-# (GPT-4o-mini-style pricing; adjust if you change models)
-# =============================
-
-# Dollars per token (0.15$ per 1M input, 0.60$ per 1M output)
+# $0.15 per 1M input tokens, $0.60 per 1M output tokens
 INPUT_TOKEN_RATE = 0.15 / 1_000_000
 OUTPUT_TOKEN_RATE = 0.60 / 1_000_000
 
 
+# ============================================================
+# Helper functions
+# ============================================================
+
 def get_daily_limit(user: User) -> int:
-    """Return the per-day flashcard limit based on the user's plan."""
+    """
+    Return the per-day flashcard limit based on the user's plan.
+    Admins get a huge limit.
+    """
     if getattr(user, "is_admin", False):
         return ADMIN_LIMIT
     plan = (user.plan or "free").lower()
@@ -75,15 +70,24 @@ def get_daily_limit(user: User) -> int:
 
 
 def ensure_daily_reset(user: User) -> None:
-    """Reset daily usage counters if a new day has started."""
+    """
+    Reset daily usage counters if a new day has started.
+    This covers:
+      - daily_cards_generated
+      - daily_input_tokens
+      - daily_output_tokens
+    """
     today = date.today()
     if not user.daily_reset_date or user.daily_reset_date < today:
         user.daily_reset_date = today
         user.daily_cards_generated = 0
-        # Optionally reset daily token counters too
         user.daily_input_tokens = 0
         user.daily_output_tokens = 0
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception("Error resetting daily counters for %s", user.id)
 
 
 def log_visit(path: str) -> None:
@@ -94,9 +98,7 @@ def log_visit(path: str) -> None:
     try:
         v = Visit(
             path=path,
-            user_id=current_user.id
-            if getattr(current_user, "is_authenticated", False)
-            else None,
+            user_id=current_user.id if getattr(current_user, "is_authenticated", False) else None,
             ip_address=request.remote_addr or "",
             user_agent=request.headers.get("User-Agent", "")[:512],
         )
@@ -107,14 +109,17 @@ def log_visit(path: str) -> None:
         current_app.logger.exception("Error logging visit for path %s", path)
 
 
-# =============================
-# Routes
-# =============================
+# ============================================================
+# Public routes
+# ============================================================
 
 @views_bp.route("/", methods=["GET"])
 def index():
-    """Landing page."""
-    log_visit("/")  # track homepage views
+    """
+    Landing page.
+    If logged in, go straight to dashboard.
+    """
+    log_visit("/")
     if current_user.is_authenticated:
         return redirect(url_for("views.dashboard"))
     return render_template("index.html")
@@ -125,10 +130,13 @@ def index():
 def dashboard():
     """
     Main generator UI:
-    - Text + PDF input
-    - Calls AI generator directly (no Celery/Redis)
-    - Enforces daily limits
-    - Stores cards in session for export/download
+
+    - Accepts text area content and/or uploaded PDF.
+    - Calls OpenAI directly (no Celery/Redis).
+    - Enforces per-day card limits based on plan.
+    - Saves generated cards to:
+        * session (for immediate download)
+        * Flashcard table (for analytics/history)
     """
     log_visit("/dashboard")
     ensure_daily_reset(current_user)
@@ -136,10 +144,14 @@ def dashboard():
     cards = session.get("cards", [])
 
     if request.method == "POST":
-        # ------------ Input text ---------------
+        # -----------------------------------
+        # Input text (from textarea)
+        # -----------------------------------
         raw_text = request.form.get("text_content", "").strip()
 
-        # ------------ PDF input ---------------
+        # -----------------------------------
+        # PDF upload
+        # -----------------------------------
         pdf_file = request.files.get("pdf_file")
         pdf_text = ""
         if pdf_file and pdf_file.filename:
@@ -150,7 +162,6 @@ def dashboard():
                 current_app.logger.exception("Error reading PDF")
                 flash(f"Error reading PDF: {e}", "danger")
 
-                # Recompute stats for re-render
                 daily_limit = get_daily_limit(current_user)
                 used = current_user.daily_cards_generated or 0
                 remaining = max(0, daily_limit - used)
@@ -166,7 +177,7 @@ def dashboard():
                     is_admin=current_user.is_admin,
                 )
 
-        # Combine text + PDF
+        # Combine text + PDF content
         combined_text = "\n\n".join(x for x in [raw_text, pdf_text] if x).strip()
 
         if not combined_text:
@@ -187,7 +198,9 @@ def dashboard():
                 is_admin=current_user.is_admin,
             )
 
-        # ------------ Requested cards ---------------
+        # -----------------------------------
+        # Requested number of cards
+        # -----------------------------------
         try:
             requested_num = int(request.form.get("num_cards", 10))
         except ValueError:
@@ -195,9 +208,12 @@ def dashboard():
 
         requested_num = max(1, min(requested_num, 2000))
 
-        # ------------ Enforce daily limits ---------------
+        # -----------------------------------
+        # Enforce daily limits
+        # -----------------------------------
         daily_limit = get_daily_limit(current_user)
-        remaining = max(0, daily_limit - (current_user.daily_cards_generated or 0))
+        already_used = current_user.daily_cards_generated or 0
+        remaining = max(0, daily_limit - already_used)
 
         if remaining <= 0:
             flash(
@@ -212,14 +228,16 @@ def dashboard():
                 plan=current_user.plan,
                 stripe_public_key=Config.STRIPE_PUBLIC_KEY,
                 daily_limit=daily_limit,
-                used=current_user.daily_cards_generated or 0,
+                used=already_used,
                 remaining=0,
                 is_admin=current_user.is_admin,
             )
 
         num_cards = min(requested_num, remaining)
 
-        # ------------ Direct AI call ---------------
+        # -----------------------------------
+        # Direct AI call
+        # -----------------------------------
         try:
             new_cards = generate_flashcards_from_text(
                 combined_text,
@@ -249,17 +267,19 @@ def dashboard():
 
             used = len(new_cards)
 
-            # Track usage (cards)
-            current_user.daily_cards_generated = (
-                current_user.daily_cards_generated or 0
-            ) + used
+            # Track usage in card counters
+            current_user.daily_cards_generated = (current_user.daily_cards_generated or 0) + used
             if current_user.cards_generated_this_month is None:
                 current_user.cards_generated_this_month = 0
             current_user.cards_generated_this_month += used
 
-            db.session.commit()
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                current_app.logger.exception("Error updating card counters")
 
-            # Optionally, persist cards for analytics
+            # Persist cards to DB (for analytics)
             try:
                 for c in new_cards:
                     fc = Flashcard(
@@ -274,6 +294,7 @@ def dashboard():
                 db.session.rollback()
                 current_app.logger.exception("Error saving flashcards to DB")
 
+            # Keep in session for export/download
             session["cards"] = new_cards
             cards = new_cards
 
@@ -283,7 +304,9 @@ def dashboard():
             current_app.logger.exception("Error during card generation")
             flash(f"Error generating flashcards: {e}", "danger")
 
-    # ----------------- Stats for GET / fallback --------------------
+    # -----------------------------------
+    # GET / fallback or render after POST
+    # -----------------------------------
     ensure_daily_reset(current_user)
     daily_limit = get_daily_limit(current_user)
     used = current_user.daily_cards_generated or 0
@@ -304,7 +327,12 @@ def dashboard():
 @views_bp.route("/download/<fmt>")
 @login_required
 def download(fmt: str):
-    """Download flashcards in APKG / CSV / JSON."""
+    """
+    Download the current session's flashcards in one of:
+    - .apkg (Anki)
+    - .csv
+    - .json
+    """
     cards = session.get("cards", [])
     if not cards:
         flash("No cards to download.", "warning")
@@ -338,9 +366,9 @@ def download(fmt: str):
     return redirect(url_for("views.dashboard"))
 
 
-# =============================
-# Admin dashboard
-# =============================
+# ============================================================
+# Admin dashboard (table + token usage / cost)
+# ============================================================
 
 @views_bp.route("/admin", methods=["GET"])
 @login_required
@@ -348,8 +376,7 @@ def admin_dashboard():
     """
     Admin-only panel showing:
     - All users, their plans, and usage details
-    - Aggregated token usage + estimated cost
-    - Rough estimated monthly revenue
+    - Aggregated token usage + estimated OpenAI cost
     """
     log_visit("/admin")
 
@@ -365,10 +392,8 @@ def admin_dashboard():
     total_monthly_input = 0
     total_monthly_output = 0
 
-    total_estimated_revenue = 0.0
-    paid_users = 0
-
     user_rows = []
+
     for u in users:
         plan = (u.plan or "free").lower()
         daily_limit = get_daily_limit(u)
@@ -391,14 +416,7 @@ def admin_dashboard():
         total_monthly_input += m_in
         total_monthly_output += m_out
 
-        # Estimated monthly OpenAI cost for this user
         monthly_cost = (m_in * INPUT_TOKEN_RATE) + (m_out * OUTPUT_TOKEN_RATE)
-
-        # Estimated revenue for this user (per month)
-        plan_price = PLAN_PRICES.get(plan, 0.0)
-        total_estimated_revenue += plan_price
-        if plan in {"basic", "premium", "professional"}:
-            paid_users += 1
 
         user_rows.append(
             {
@@ -414,15 +432,17 @@ def admin_dashboard():
                 "daily_output_tokens": d_out,
                 "monthly_input_tokens": m_in,
                 "monthly_output_tokens": m_out,
-                "monthly_cost": monthly_cost,             # legacy name
-                "estimated_monthly_cost": monthly_cost,   # clearer name for templates
+                "monthly_cost": monthly_cost,
+                "estimated_cost": monthly_cost,  # for template convenience
             }
         )
 
-    total_monthly_tokens = total_monthly_input + total_monthly_output
     total_token_cost = (total_monthly_input * INPUT_TOKEN_RATE) + (
         total_monthly_output * OUTPUT_TOKEN_RATE
     )
+
+    # Keep both names in case the template references either
+    total_estimated_cost = total_token_cost
 
     return render_template(
         "admin.html",
@@ -430,36 +450,31 @@ def admin_dashboard():
         plan_counts=plan_counts,
         plan_limits=PLAN_LIMITS,
         total_users=len(users),
-        # token totals
         total_daily_input_tokens=total_daily_input,
         total_daily_output_tokens=total_daily_output,
         total_monthly_input_tokens=total_monthly_input,
         total_monthly_output_tokens=total_monthly_output,
-        total_monthly_cost=total_token_cost,  # keep old name if template uses it
-        # new analytics for the cards at top of admin.html
-        paid_users=paid_users,
-        total_estimated_revenue=total_estimated_revenue,
         total_token_cost=total_token_cost,
-        total_estimated_cost=total_token_cost,
-        total_monthly_tokens=total_monthly_tokens,
+        total_estimated_cost=total_estimated_cost,
         input_token_rate=INPUT_TOKEN_RATE,
         output_token_rate=OUTPUT_TOKEN_RATE,
     )
 
 
-# =============================
-# Admin Analytics (charts, visits, subs)
-# =============================
+# ============================================================
+# Admin Analytics (charts, visits, subscriptions, cards)
+# ============================================================
 
 @views_bp.route("/admin/analytics", methods=["GET"])
 @login_required
 def admin_analytics():
     """
     Analytics panel for admins:
+
     - Website visits per day (last 30 days)
     - New subscriptions per day (last 30 days)
     - Flashcards created per day (last 30 days)
-    - Aggregate token usage + cost
+    - Aggregate token usage + estimated monthly OpenAI cost
     """
     log_visit("/admin/analytics")
 
@@ -471,9 +486,9 @@ def admin_analytics():
     start_date = today - timedelta(days=29)
     start_dt = datetime.combine(start_date, datetime.min.time())
 
-    # -------------------------
+    # -----------------------------------
     # Visits per day
-    # -------------------------
+    # -----------------------------------
     visits = (
         Visit.query.filter(Visit.created_at >= start_dt)
         .order_by(Visit.created_at.asc())
@@ -484,9 +499,9 @@ def admin_analytics():
         d = v.created_at.date().isoformat()
         visits_by_day[d] += 1
 
-    # -------------------------
+    # -----------------------------------
     # New subscriptions per day
-    # -------------------------
+    # -----------------------------------
     subs = (
         Subscription.query.filter(Subscription.created_at >= start_dt)
         .order_by(Subscription.created_at.asc())
@@ -498,9 +513,9 @@ def admin_analytics():
             d = s.created_at.date().isoformat()
             subs_by_day[d] += 1
 
-    # -------------------------
+    # -----------------------------------
     # Flashcards created per day
-    # -------------------------
+    # -----------------------------------
     flashcards = (
         Flashcard.query.filter(Flashcard.created_at >= start_dt)
         .order_by(Flashcard.created_at.asc())
@@ -512,7 +527,7 @@ def admin_analytics():
             d = c.created_at.date().isoformat()
             cards_by_day[d] += 1
 
-    # Normalize labels to a continuous 30-day window
+    # Continuous 30-day window for x-axis labels
     labels = [
         (start_date + timedelta(days=i)).isoformat()
         for i in range(30)
@@ -522,7 +537,9 @@ def admin_analytics():
     subs_series = [subs_by_day.get(d, 0) for d in labels]
     cards_series = [cards_by_day.get(d, 0) for d in labels]
 
+    # -----------------------------------
     # Aggregate token usage + cost (monthly)
+    # -----------------------------------
     users = User.query.all()
     total_monthly_input = sum((u.monthly_input_tokens or 0) for u in users)
     total_monthly_output = sum((u.monthly_output_tokens or 0) for u in users)

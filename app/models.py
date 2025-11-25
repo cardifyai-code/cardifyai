@@ -1,4 +1,6 @@
-from datetime import datetime, date
+# app/models.py
+
+from datetime import datetime
 from flask_login import UserMixin
 
 from . import db
@@ -14,28 +16,22 @@ class User(db.Model, UserMixin):
     password_hash = db.Column(db.String(255))  # optional if using Google-only login
     google_id = db.Column(db.String(255), unique=True)
 
-    # Stripe / billing (current active subscription info)
+    # Stripe / billing
     stripe_customer_id = db.Column(db.String(255))
     stripe_subscription_id = db.Column(db.String(255))
     stripe_price_id = db.Column(db.String(255))
-
-    # Legacy plan field (kept for compatibility)
     plan = db.Column(db.String(50), default="free")  # free/basic/premium/professional
-
-    # New field used throughout the app (auth.py, views.py)
-    tier = db.Column(db.String(50), default="free")  # free/basic/premium/professional
-
     is_active = db.Column(db.Boolean, default=True)
     is_admin = db.Column(db.Boolean, default=False)
 
-    # Monthly quotas (optional, kept from original design)
+    # Monthly quotas
     monthly_card_quota = db.Column(db.Integer, default=1000)
     cards_generated_this_month = db.Column(db.Integer, default=0)
     quota_reset_at = db.Column(db.DateTime)
 
-    # Daily usage tracking (used by views.py)
+    # Daily quotas
     daily_cards_generated = db.Column(db.Integer, default=0)
-    daily_reset_date = db.Column(db.Date)  # date of last reset
+    daily_reset_date = db.Column(db.Date)
 
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -48,26 +44,18 @@ class User(db.Model, UserMixin):
     subscriptions = db.relationship("Subscription", backref="user", lazy=True)
 
     def __repr__(self) -> str:
-        effective_tier = self.tier or self.plan or "free"
-        return f"<User id={self.id} email={self.email} tier={effective_tier}>"
-
-    @property
-    def effective_tier(self) -> str:
-        """Use tier if set, otherwise fall back to plan, then 'free'."""
-        return (self.tier or self.plan or "free").lower()
+        return f"<User id={self.id} email={self.email} plan={self.plan}>"
 
     @property
     def is_premium(self) -> bool:
-        """Treat any paid plan/tier as premium."""
-        return self.effective_tier in {"basic", "premium", "professional"}
+        """Treat any paid plan as premium."""
+        return self.plan in {"basic", "premium", "professional"}
 
 
 class Subscription(db.Model):
     """
     Historical subscription records.
-
-    The User table keeps the *current* subscription fields for quick checks.
-    This table tracks changes over time: upgrades, downgrades, cancellations, etc.
+    User has the *current* subscription state; this table stores changes.
     """
 
     __tablename__ = "subscriptions"

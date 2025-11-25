@@ -6,6 +6,7 @@ from openai import OpenAI
 
 from .config import SYSTEM_PROMPT
 
+# Global client cache
 _client: OpenAI | None = None
 
 
@@ -24,14 +25,15 @@ def _get_client() -> OpenAI:
 
 def _extract_text_from_response(response) -> str:
     """
-    Robustly extract text from the new OpenAI Responses API.
+    Robustly extract text from the OpenAI Responses API output.
 
-    We handle possibilities like:
-      - item.type == "message"
-      - item.content -> list of parts
-        - part.type == "output_text" with part.output_text.text
-        - part.type == "text" with part.text
-      - if all else fails, we fall back to str(part)
+    Handles shapes like:
+      response.output or response.outputs
+      each item.type == "message"
+      item.content -> list of parts
+        - part.output_text.text
+        - part.text
+    Falls back to str(part) if needed.
     """
     text_chunks: List[str] = []
 
@@ -44,10 +46,9 @@ def _extract_text_from_response(response) -> str:
         if item_type and item_type != "message":
             continue
 
-        # Most current SDKs: the content is directly on the item
         contents = getattr(item, "content", None)
         if contents is None:
-            # Extremely defensive: some variants might use item.message.content
+            # Some SDKs have item.message.content instead
             message_obj = getattr(item, "message", None)
             if message_obj is not None:
                 contents = getattr(message_obj, "content", None)
@@ -56,9 +57,7 @@ def _extract_text_from_response(response) -> str:
             continue
 
         for part in contents:
-            c_type = getattr(part, "type", None)
-
-            # Try output_text.text first
+            # Try part.output_text.text first
             if hasattr(part, "output_text"):
                 ot = getattr(part, "output_text", None)
                 txt = getattr(ot, "text", None) if ot is not None else None
@@ -102,8 +101,10 @@ def generate_flashcards_from_text(
         raise RuntimeError("No source text provided for flashcard generation.")
 
     client = _get_client()
-    model = current_app.config.get("OPENAI_MODEL", "gpt-4.1-mini")
+    # Default from config is "gpt-4o-mini", but allow override
+    model = current_app.config.get("OPENAI_MODEL", "gpt-4o-mini")
 
+    # Build the user prompt that instructs the model how to behave
     prompt = (
         "You will be given study content.\n\n"
         "Your task:\n"
@@ -126,7 +127,7 @@ def generate_flashcards_from_text(
     )
 
     try:
-        # No 'reasoning' parameter – compatible with gpt-4.1-mini, o3-mini, etc.
+        # Responses API call (no reasoning param so it's compatible with gpt-4o-mini)
         response = client.responses.create(
             model=model,
             input=[
@@ -149,7 +150,7 @@ def generate_flashcards_from_text(
     except Exception as e:
         raise RuntimeError(f"Unexpected format from OpenAI response: {e}") from e
 
-    # As an ultra-defensive fallback, if still empty, try stringifying the response
+    # Ultra-defensive: if still empty, fall back to stringifying the response
     if not raw_output:
         try:
             raw_output = str(response) or ""
@@ -160,38 +161,37 @@ def generate_flashcards_from_text(
     if not raw_output:
         raise RuntimeError("Model returned empty output.")
 
-    # Try to parse as JSON
+    # Try to parse JSON
     try:
         data = json.loads(raw_output)
     except json.JSONDecodeError:
-        # Fallback: look for a JSON array inside the text
-        start = raw_output.find("[")
-        end = raw_output.rfind("]")
-        if start != -1 and end != -1 and end > start:
-            try:
-                data = json.loads(raw_output[start : end + 1])
-            except Exception:
-                raise RuntimeError("Could not parse JSON from model output.")
-        else:
-            raise RuntimeError("Model output did not contain valid JSON.")
+        # Attempt to recover if model wrapped JSON in extra text
+        try:
+            start = raw_output.index("[")
+            end = raw_output.rindex("]") + 1
+            data = json.loads(raw_output[start:end])
+        except Exception as e:
+            raise RuntimeError(
+                "Model did not return valid JSON flashcard list."
+            ) from e
 
     if not isinstance(data, list):
-        raise RuntimeError("Model output JSON is not a list of flashcards.")
+        raise RuntimeError("Model response JSON is not a list.")
 
-    flashcards: List[Dict[str, str]] = []
+    cards: List[Dict[str, str]] = []
     for item in data:
         if not isinstance(item, dict):
             continue
-        front = str(item.get("front", "")).strip()
-        back = str(item.get("back", "")).strip()
-        if front and back:
-            flashcards.append({"front": front, "back": back})
+        front = (item.get("front") or "").strip()
+        back = (item.get("back") or "").strip()
+        if not front or not back:
+            continue
+        cards.append({"front": front, "back": back})
 
-    if not flashcards:
-        raise RuntimeError("No valid flashcards generated from model output.")
+        if len(cards) >= num_cards:
+            break
 
-    # Trim if model returned more than requested
-    if len(flashcards) > num_cards:
-        flashcards = flashcards[:num_cards]
+    if not cards:
+        raise RuntimeError("No valid flashcards were parsed from the model output.")
 
-    return flashcards
+    return cards

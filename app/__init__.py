@@ -1,10 +1,10 @@
 # app/__init__.py
 
-import os
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from authlib.integrations.flask_client import OAuth
+from sqlalchemy import text
 
 from .config import Config
 
@@ -17,7 +17,7 @@ oauth = OAuth()
 def create_app():
     app = Flask(__name__)
 
-    # Load all config from Config class (uses env vars)
+    # Load config from Config (which pulls from env vars)
     app.config.from_object(Config)
 
     # Init extensions
@@ -25,8 +25,8 @@ def create_app():
     login_manager.init_app(app)
     oauth.init_app(app)
 
-    # Import models so SQLAlchemy knows about them
-    from .models import User, Subscription, Flashcard
+    # Import models so SQLAlchemy is aware of them
+    from .models import User, Subscription, Flashcard  # noqa: F401
 
     # Register blueprints
     from .views import views_bp
@@ -48,8 +48,35 @@ def create_app():
         except Exception:
             return None
 
-    # Create tables on startup
+    # Create tables and patch schema on startup
     with app.app_context():
         db.create_all()
+
+        # Safety: ensure required columns exist (no manual psql needed)
+        alter_statements = [
+            # Plan / subscription
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS plan VARCHAR(50) DEFAULT 'free'",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(255)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_price_id VARCHAR(255)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE",
+
+            # Monthly quota
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_card_quota INTEGER DEFAULT 1000",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS cards_generated_this_month INTEGER DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_reset_at TIMESTAMP",
+
+            # Daily quota
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_cards_generated INTEGER DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_reset_date DATE",
+        ]
+
+        for sql in alter_statements:
+            try:
+                db.session.execute(text(sql))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
 
     return app

@@ -4,7 +4,7 @@ import genanki
 from typing import List, Dict, Any
 
 
-# Stable deterministic IDs (important for Anki)
+# Stable deterministic IDs (important for Anki so imports merge nicely)
 MODEL_ID = 1607392319
 DECK_ID = 2059400110
 
@@ -30,11 +30,14 @@ def _build_anki_model() -> genanki.Model:
     )
 
 
-def create_apkg_from_cards(cards: List[Dict[str, Any]], deck_name: str = "CardifyAI Deck") -> bytes:
+def create_apkg_from_cards(
+    cards: List[Dict[str, Any]],
+    deck_name: str = "CardifyAI Deck",
+) -> bytes:
     """
     Build an Anki .apkg file from cards:
       [{"front": "...", "back": "..."}, ...]
-    Returns bytes for direct download.
+    Returns bytes for direct download via send_file.
     """
     model = _build_anki_model()
     deck = genanki.Deck(DECK_ID, deck_name)
@@ -46,7 +49,7 @@ def create_apkg_from_cards(cards: List[Dict[str, Any]], deck_name: str = "Cardif
         if not front or not back:
             continue
 
-        # Stable GUID from card contents
+        # Stable GUID from card contents so duplicates merge
         guid = str(abs(hash(front + back + str(index))))
 
         note = genanki.Note(
@@ -67,6 +70,7 @@ def create_apkg_from_cards(cards: List[Dict[str, Any]], deck_name: str = "Cardif
 def create_csv_from_cards(cards: List[Dict[str, Any]]) -> bytes:
     """
     Export cards to CSV. Returns UTF-8 encoded CSV bytes.
+    Columns: Front, Back
     """
     output = io.StringIO()
     writer = csv.writer(output)
@@ -85,5 +89,5 @@ def create_csv_from_cards(cards: List[Dict[str, Any]]) -> bytes:
     csv_data = output.getvalue()
     output.close()
 
-    # Add BOM so Excel loads correctly
+    # Add BOM so Excel loads UTF-8 correctly
     return ("\ufeff" + csv_data).encode("utf-8")

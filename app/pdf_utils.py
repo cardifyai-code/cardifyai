@@ -1,15 +1,19 @@
+# app/pdf_utils.py
+
+from io import BytesIO
 from typing import Optional
-from PyPDF2 import PdfReader
+
+import fitz  # PyMuPDF
 
 
-def extract_text_from_pdf(file_stream) -> Optional[str]:
-    """Extract text from a PDF file-like object using PyPDF2."""
-    try:
-        reader = PdfReader(file_stream)
-        texts = []
-        for page in reader.pages:
-            page_text = page.extract_text() or ""
-            texts.append(page_text)
-        return "\n".join(texts)
-    except Exception:
-        return None
+def extract_text_from_pdf(pdf_bytes: BytesIO) -> str:
+    """
+    Extract text from a PDF file (given as bytes) using PyMuPDF.
+    """
+    pdf_bytes.seek(0)
+    doc = fitz.open(stream=pdf_bytes.read(), filetype="pdf")
+    texts = []
+    for page in doc:
+        texts.append(page.get_text("text"))
+    doc.close()
+    return "\n\n".join(texts)

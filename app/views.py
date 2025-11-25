@@ -1,5 +1,6 @@
+# app/views.py
+
 from datetime import date
-import json
 from io import BytesIO
 
 from flask import (
@@ -19,21 +20,21 @@ from . import db
 from .models import User
 from .ai import generate_flashcards_from_text
 from .pdf_utils import extract_text_from_pdf
-from .deck_export import create_apkg_from_cards, create_csv_from_cards
+from .deck_export import create_apkg_from_flashcards, create_csv_from_flashcards
 from .config import Config
 
 views_bp = Blueprint("views", __name__)
 
 
 # =============================
-# Card limits by tier
+# Card limits by plan
 # =============================
 
-TIER_LIMITS = {
-    "free": 10,          # 10 cards/day logged-in free
-    "basic": 5_000,      # $3.99
-    "premium": 10_000,   # $7.99
-    "professional": 50_000,  # $19.99
+PLAN_LIMITS = {
+    "free": 10,           # 10 cards/day logged-in free
+    "basic": 5000,        # $3.99
+    "premium": 10000,     # $7.99
+    "professional": 50000,  # $19.99
 }
 
 ADMIN_LIMIT = 3_000_000  # effectively unlimited for you
@@ -42,8 +43,8 @@ ADMIN_LIMIT = 3_000_000  # effectively unlimited for you
 def get_daily_limit(user: User) -> int:
     if getattr(user, "is_admin", False):
         return ADMIN_LIMIT
-    tier = (user.tier or "free").lower()
-    return TIER_LIMITS.get(tier, TIER_LIMITS["free"])
+    plan = (user.plan or "free").lower()
+    return PLAN_LIMITS.get(plan, PLAN_LIMITS["free"])
 
 
 def ensure_daily_reset(user: User) -> None:
@@ -52,11 +53,6 @@ def ensure_daily_reset(user: User) -> None:
         user.daily_reset_date = today
         user.daily_cards_generated = 0
         db.session.commit()
-
-
-# =============================
-# Routes
-# =============================
 
 
 @views_bp.route("/", methods=["GET"])
@@ -69,7 +65,6 @@ def index():
     if current_user.is_authenticated:
         return redirect(url_for("views.dashboard"))
 
-    # Anonymous visitors can see the landing and try free tier *after login*
     return render_template("index.html")
 
 
@@ -80,7 +75,7 @@ def dashboard():
     Core app screen:
     - Shows text box + PDF upload
     - Calls OpenAI to generate flashcards
-    - Enforces per-day limits by tier
+    - Enforces per-day limits by plan
     - Stores cards in session for export/download
     """
     ensure_daily_reset(current_user)
@@ -113,7 +108,7 @@ def dashboard():
 
         # Enforce card limits
         daily_limit = get_daily_limit(current_user)
-        remaining = max(0, daily_limit - current_user.daily_cards_generated)
+        remaining = max(0, daily_limit - (current_user.daily_cards_generated or 0))
         if remaining <= 0:
             flash(
                 "You’ve hit your daily card limit for your plan. "
@@ -122,8 +117,6 @@ def dashboard():
             )
             return render_template("dashboard.html", cards=cards)
 
-        # You could also let user ask for a specific number; for now we
-        # generate up to 'remaining' cards.
         max_cards = remaining
 
         try:
@@ -138,9 +131,8 @@ def dashboard():
                 )
                 return render_template("dashboard.html", cards=cards)
 
-            # Update usage and session
             used = len(new_cards)
-            current_user.daily_cards_generated += used
+            current_user.daily_cards_generated = (current_user.daily_cards_generated or 0) + used
             db.session.commit()
 
             cards = new_cards
@@ -155,13 +147,13 @@ def dashboard():
     # Stats for UI
     ensure_daily_reset(current_user)
     daily_limit = get_daily_limit(current_user)
-    used = current_user.daily_cards_generated
+    used = current_user.daily_cards_generated or 0
     remaining = max(0, daily_limit - used)
 
     return render_template(
         "dashboard.html",
         cards=cards,
-        tier=current_user.tier,
+        plan=current_user.plan,
         daily_limit=daily_limit,
         used=used,
         remaining=remaining,
@@ -184,7 +176,7 @@ def download(fmt: str):
         return redirect(url_for("views.dashboard"))
 
     if fmt == "apkg":
-        apkg_bytes = create_apkg_from_cards(cards)
+        apkg_bytes = create_apkg_from_flashcards(cards)
         return send_file(
             apkg_bytes,
             mimetype="application/octet-stream",
@@ -192,8 +184,8 @@ def download(fmt: str):
             download_name="cardifyai_deck.apkg",
         )
 
-    elif fmt == "csv":
-        csv_bytes = create_csv_from_cards(cards)
+    if fmt == "csv":
+        csv_bytes = create_csv_from_flashcards(cards)
         return send_file(
             csv_bytes,
             mimetype="text/csv",

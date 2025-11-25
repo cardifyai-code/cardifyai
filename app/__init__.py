@@ -17,16 +17,16 @@ oauth = OAuth()
 def create_app():
     app = Flask(__name__)
 
-    # Load configuration (env-driven)
+    # Load configuration
     app.config.from_object(Config)
 
-    # Initialize extensions
+    # Init extensions
     db.init_app(app)
     login_manager.init_app(app)
     oauth.init_app(app)
 
-    # Import models so SQLAlchemy registers them
-    from .models import User, Subscription, Flashcard  # noqa
+    # Import models so SQLAlchemy is aware of them
+    from .models import User, Subscription, Flashcard  # noqa: F401
 
     # Register blueprints
     from .views import views_bp
@@ -37,27 +37,26 @@ def create_app():
     app.register_blueprint(auth_bp, url_prefix="/auth")
     app.register_blueprint(billing_bp, url_prefix="/billing")
 
-    # Login manager default route
+    # Login manager config
     login_manager.login_view = "auth.login"
     login_manager.login_message_category = "info"
 
     @login_manager.user_loader
     def load_user(user_id):
-        """Load user by primary key."""
         try:
             return User.query.get(int(user_id))
         except Exception:
             return None
 
-    # ----------------------------------------------------
-    # AUTO-MIGRATION / SCHEMA PATCHING
-    # Ensures DB always has required columns; no manual SQL.
-    # ----------------------------------------------------
+    # ------------------------------
+    # Database setup / schema patch
+    # ------------------------------
     with app.app_context():
         db.create_all()
 
+        # Add missing columns safely (no migration tools required)
         alter_statements = [
-            # --- Billing / plans ---
+            # Plan / subscription
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS plan VARCHAR(50) DEFAULT 'free'",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255)",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(255)",
@@ -65,14 +64,23 @@ def create_app():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE",
 
-            # --- Monthly quota ---
+            # Monthly quota fields
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_card_quota INTEGER DEFAULT 1000",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS cards_generated_this_month INTEGER DEFAULT 0",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_reset_at TIMESTAMP",
 
-            # --- Daily quota ---
+            # Daily quota fields
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_cards_generated INTEGER DEFAULT 0",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_reset_date DATE",
+
+            # ------------------------------
+            # REQUIRED TOKEN COLUMNS
+            # (fix for Google login failure)
+            # ------------------------------
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_input_tokens BIGINT DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_output_tokens BIGINT DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_input_tokens BIGINT DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_output_tokens BIGINT DEFAULT 0",
         ]
 
         for sql in alter_statements:

@@ -9,6 +9,7 @@ requests
 SQLAlchemy
 psycopg2-binary
 PyPDF2
+PyMuPDF
 openai>=1.0.0
 Werkzeug
 genanki

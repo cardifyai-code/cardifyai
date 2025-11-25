@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 class="mb-3">Admin Dashboard</h1>
+
+<p class="text-muted mb-4">
+  You are logged in as <strong>{{ current_user.email }}</strong>.
+  This page is visible only to admin users.
+</p>
+
+<div class="row mb-4 g-3">
+  <div class="col-md-4">
+    <div class="card border-primary h-100">
+      <div class="card-body">
+        <h5 class="card-title">Users</h5>
+        <p class="display-6 mb-0">{{ total_users }}</p>
+        <small class="text-muted">Total registered accounts</small>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-8">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title mb-3">Plans Overview</h5>
+        <div class="row">
+          <div class="col-6 col-lg-3 mb-2">
+            <div class="d-flex justify-content-between align-items-center">
+              <span>Free</span>
+              <span class="badge bg-secondary">
+                {{ plan_counts.get('free', 0) }}
+              </span>
+            </div>
+            <small class="text-muted">
+              Limit: {{ plan_limits['free'] }} / day
+            </small>
+          </div>
+          <div class="col-6 col-lg-3 mb-2">
+            <div class="d-flex justify-content-between align-items-center">
+              <span>Basic</span>
+              <span class="badge bg-info text-dark">
+                {{ plan_counts.get('basic', 0) }}
+              </span>
+            </div>
+            <small class="text-muted">
+              Limit: {{ plan_limits['basic'] }} / day
+            </small>
+          </div>
+          <div class="col-6 col-lg-3 mb-2">
+            <div class="d-flex justify-content-between align-items-center">
+              <span>Premium</span>
+              <span class="badge bg-primary">
+                {{ plan_counts.get('premium', 0) }}
+              </span>
+            </div>
+            <small class="text-muted">
+              Limit: {{ plan_limits['premium'] }} / day
+            </small>
+          </div>
+          <div class="col-6 col-lg-3 mb-2">
+            <div class="d-flex justify-content-between align-items-center">
+              <span>Professional</span>
+              <span class="badge bg-dark">
+                {{ plan_counts.get('professional', 0) }}
+              </span>
+            </div>
+            <small class="text-muted">
+              Limit: {{ plan_limits['professional'] }} / day
+            </small>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="mb-4">
+
+<h4 class="mb-3">Users</h4>
+
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle">
+    <thead class="table-light">
+      <tr>
+        <th scope="col">Email</th>
+        <th scope="col">Plan</th>
+        <th scope="col">Daily Usage</th>
+        <th scope="col">Monthly Usage</th>
+        <th scope="col">Stripe</th>
+        <th scope="col">Created</th>
+        <th scope="col">Admin</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in user_rows %}
+        {% set u = row.user %}
+        <tr>
+          <td>
+            {{ u.email }}
+            {% if u.id == current_user.id %}
+              <span class="badge bg-secondary ms-1">You</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if row.plan == 'free' %}
+              <span class="badge bg-secondary">Free</span>
+            {% elif row.plan == 'basic' %}
+              <span class="badge bg-info text-dark">Basic</span>
+            {% elif row.plan == 'premium' %}
+              <span class="badge bg-primary">Premium</span>
+            {% elif row.plan == 'professional' %}
+              <span class="badge bg-dark">Professional</span>
+            {% else %}
+              <span class="badge bg-light text-dark">
+                {{ row.plan|capitalize }}
+              </span>
+            {% endif %}
+          </td>
+          <td>
+            <div>
+              {{ row.daily_used }} / {{ row.daily_limit }}
+            </div>
+            <small class="text-muted">
+              Remaining: {{ row.daily_remaining }}
+            </small>
+          </td>
+          <td>
+            {% if row.monthly_quota %}
+              <div>
+                {{ row.monthly_used }} / {{ row.monthly_quota }}
+              </div>
+              <small class="text-muted">
+                Remaining: {{ row.monthly_remaining }}
+              </small>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if u.stripe_customer_id %}
+              <span class="badge bg-success">Linked</span>
+              <br>
+              <small class="text-muted">
+                {{ u.stripe_price_id or 'No price' }}
+              </small>
+            {% else %}
+              <span class="badge bg-outline-secondary border">
+                None
+              </span>
+            {% endif %}
+          </td>
+          <td>
+            {{ u.created_at.strftime("%Y-%m-%d") if u.created_at else "—" }}
+          </td>
+          <td>
+            {% if u.is_admin %}
+              <span class="badge bg-warning text-dark">Admin</span>
+            {% else %}
+              <span class="text-muted">No</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

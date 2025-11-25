@@ -1,5 +1,6 @@
 from datetime import date
 from io import BytesIO
+from collections import Counter
 
 from flask import (
     Blueprint,
@@ -32,10 +33,10 @@ views_bp = Blueprint("views", __name__)
 # =============================
 
 PLAN_LIMITS = {
-    "free": 10,            # 10 cards/day
-    "basic": 200,          # 200 cards/day
-    "premium": 1_000,      # 1,000 cards/day
-    "professional": 5_000  # 5,000 cards/day
+    "free": 10,          # 10 cards/day
+    "basic": 200,        # 200 cards/day
+    "premium": 1_000,    # 1,000 cards/day
+    "professional": 5_000,  # 5,000 cards/day
 }
 
 ADMIN_LIMIT = 3_000_000  # effectively unlimited for you
@@ -254,3 +255,59 @@ def download(fmt: str):
 
     flash("Unknown download format.", "danger")
     return redirect(url_for("views.dashboard"))
+
+
+# =============================
+# Admin dashboard
+# =============================
+
+
+@views_bp.route("/admin", methods=["GET"])
+@login_required
+def admin_dashboard():
+    """
+    Simple admin dashboard showing all users, their plans, and usage.
+    Restricted to is_admin users.
+    """
+    if not current_user.is_admin:
+        flash("Admin access only.", "danger")
+        return redirect(url_for("views.dashboard"))
+
+    # All users, newest first
+    users = User.query.order_by(User.created_at.desc()).all()
+
+    # Aggregate plan counts
+    plan_counts = Counter((u.plan or "free").lower() for u in users)
+
+    # Build per-user stats
+    user_rows = []
+    for u in users:
+        plan = (u.plan or "free").lower()
+        daily_limit = get_daily_limit(u)
+        daily_used = u.daily_cards_generated or 0
+        daily_remaining = max(0, daily_limit - daily_used)
+
+        monthly_quota = u.monthly_card_quota or 0
+        monthly_used = u.cards_generated_this_month or 0
+        monthly_remaining = max(0, monthly_quota - monthly_used) if monthly_quota else None
+
+        user_rows.append(
+            {
+                "user": u,
+                "plan": plan,
+                "daily_limit": daily_limit,
+                "daily_used": daily_used,
+                "daily_remaining": daily_remaining,
+                "monthly_quota": monthly_quota,
+                "monthly_used": monthly_used,
+                "monthly_remaining": monthly_remaining,
+            }
+        )
+
+    return render_template(
+        "admin.html",
+        user_rows=user_rows,
+        plan_counts=plan_counts,
+        total_users=len(users),
+        plan_limits=PLAN_LIMITS,
+    )

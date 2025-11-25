@@ -37,6 +37,14 @@
                   Dashboard
                 </a>
               </li>
+              {% if current_user.is_admin %}
+                <li class="nav-item">
+                  <a class="nav-link{% if request.endpoint == 'views.admin_dashboard' %} active{% endif %}"
+                     href="{{ url_for('views.admin_dashboard') }}">
+                    Admin
+                  </a>
+                </li>
+              {% endif %}
             {% endif %}
           </ul>
 

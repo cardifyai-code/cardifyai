@@ -416,8 +416,12 @@ def admin_dashboard():
 
         # Estimated *revenue* per user based on plan
         plan_price = PLAN_PRICES.get(plan, 0.0)
-        estimated_revenue = plan_price
 
+        # Do NOT count admins as revenue, even if they're on a paid plan
+        if u.is_admin:
+            plan_price = 0.0
+
+        estimated_revenue = plan_price
         total_estimated_cost += estimated_cost
         total_estimated_revenue += estimated_revenue
 

@@ -24,7 +24,6 @@ class Config:
     # ------------------------------------------------------------------
     GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
     GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
-    # The URL where Google redirects after login
     GOOGLE_DISCOVERY_URL = (
         "https://accounts.google.com/.well-known/openid-configuration"
     )
@@ -36,29 +35,28 @@ class Config:
     STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
     STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
+    # Price IDs for your 3 plans (set in Render env vars)
+    STRIPE_BASIC_PRICE_ID = os.environ.get("STRIPE_BASIC_PRICE_ID", "")
+    STRIPE_PREMIUM_PRICE_ID = os.environ.get("STRIPE_PREMIUM_PRICE_ID", "")
+    STRIPE_PROFESSIONAL_PRICE_ID = os.environ.get("STRIPE_PROFESSIONAL_PRICE_ID", "")
+
     # ------------------------------------------------------------------
     # OpenAI
     # ------------------------------------------------------------------
     OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-    # You’re using GPT-4o-mini in the app
     OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
     # ------------------------------------------------------------------
     # Celery / Redis (for background flashcard jobs)
     # ------------------------------------------------------------------
-    # IMPORTANT:
-    #  - On Render, set REDIS_URL in the Dashboard (e.g. provided by Redis add-on)
-    #  - Locally, this defaults to a local Redis instance
+    # On Render, set REDIS_URL in the Dashboard (from your Redis add-on).
+    # Locally it defaults to a local Redis.
     REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
-    # Use the same Redis URL for result backend
     CELERY_BROKER_URL = REDIS_URL
     CELERY_RESULT_BACKEND = REDIS_URL
 
-    # ------------------------------------------------------------------
-    # Misc
-    # ------------------------------------------------------------------
-    # How long (seconds) a flashcard generation job is allowed to run
+    # Task time limits (seconds)
     CELERY_TASK_TIME_LIMIT = int(os.environ.get("CELERY_TASK_TIME_LIMIT", "900"))  # 15 min
     CELERY_TASK_SOFT_TIME_LIMIT = int(
         os.environ.get("CELERY_TASK_SOFT_TIME_LIMIT", "840")

@@ -45,6 +45,18 @@ PLAN_LIMITS = {
 ADMIN_LIMIT = 3_000_000  # effectively unlimited for your admin account
 
 # =============================
+# Plan prices (for revenue est.)
+# Adjust these to match your Stripe prices.
+# =============================
+
+PLAN_PRICES = {
+    "free": 0.0,
+    "basic": 9.0,
+    "premium": 19.0,
+    "professional": 49.0,
+}
+
+# =============================
 # OpenAI cost assumptions
 # (GPT-4o-mini-style pricing; adjust if you change models)
 # =============================
@@ -82,7 +94,9 @@ def log_visit(path: str) -> None:
     try:
         v = Visit(
             path=path,
-            user_id=current_user.id if getattr(current_user, "is_authenticated", False) else None,
+            user_id=current_user.id
+            if getattr(current_user, "is_authenticated", False)
+            else None,
             ip_address=request.remote_addr or "",
             user_agent=request.headers.get("User-Agent", "")[:512],
         )
@@ -236,7 +250,9 @@ def dashboard():
             used = len(new_cards)
 
             # Track usage (cards)
-            current_user.daily_cards_generated = (current_user.daily_cards_generated or 0) + used
+            current_user.daily_cards_generated = (
+                current_user.daily_cards_generated or 0
+            ) + used
             if current_user.cards_generated_this_month is None:
                 current_user.cards_generated_this_month = 0
             current_user.cards_generated_this_month += used
@@ -333,6 +349,7 @@ def admin_dashboard():
     Admin-only panel showing:
     - All users, their plans, and usage details
     - Aggregated token usage + estimated cost
+    - Rough estimated monthly revenue
     """
     log_visit("/admin")
 
@@ -347,6 +364,9 @@ def admin_dashboard():
     total_daily_output = 0
     total_monthly_input = 0
     total_monthly_output = 0
+
+    total_estimated_revenue = 0.0
+    paid_users = 0
 
     user_rows = []
     for u in users:
@@ -371,7 +391,14 @@ def admin_dashboard():
         total_monthly_input += m_in
         total_monthly_output += m_out
 
+        # Estimated monthly OpenAI cost for this user
         monthly_cost = (m_in * INPUT_TOKEN_RATE) + (m_out * OUTPUT_TOKEN_RATE)
+
+        # Estimated revenue for this user (per month)
+        plan_price = PLAN_PRICES.get(plan, 0.0)
+        total_estimated_revenue += plan_price
+        if plan in {"basic", "premium", "professional"}:
+            paid_users += 1
 
         user_rows.append(
             {
@@ -387,11 +414,13 @@ def admin_dashboard():
                 "daily_output_tokens": d_out,
                 "monthly_input_tokens": m_in,
                 "monthly_output_tokens": m_out,
-                "monthly_cost": monthly_cost,
+                "monthly_cost": monthly_cost,             # legacy name
+                "estimated_monthly_cost": monthly_cost,   # clearer name for templates
             }
         )
 
-    total_monthly_cost = (total_monthly_input * INPUT_TOKEN_RATE) + (
+    total_monthly_tokens = total_monthly_input + total_monthly_output
+    total_token_cost = (total_monthly_input * INPUT_TOKEN_RATE) + (
         total_monthly_output * OUTPUT_TOKEN_RATE
     )
 
@@ -401,11 +430,17 @@ def admin_dashboard():
         plan_counts=plan_counts,
         plan_limits=PLAN_LIMITS,
         total_users=len(users),
+        # token totals
         total_daily_input_tokens=total_daily_input,
         total_daily_output_tokens=total_daily_output,
         total_monthly_input_tokens=total_monthly_input,
         total_monthly_output_tokens=total_monthly_output,
-        total_monthly_cost=total_monthly_cost,
+        total_monthly_cost=total_token_cost,  # keep old name if template uses it
+        # new analytics for the cards at top of admin.html
+        paid_users=paid_users,
+        total_estimated_revenue=total_estimated_revenue,
+        total_token_cost=total_token_cost,
+        total_monthly_tokens=total_monthly_tokens,
         input_token_rate=INPUT_TOKEN_RATE,
         output_token_rate=OUTPUT_TOKEN_RATE,
     )

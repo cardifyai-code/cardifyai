@@ -17,7 +17,7 @@ oauth = OAuth()
 def create_app():
     app = Flask(__name__)
 
-    # Load configuration
+    # Load config
     app.config.from_object(Config)
 
     # Init extensions
@@ -26,7 +26,7 @@ def create_app():
     oauth.init_app(app)
 
     # Import models so SQLAlchemy is aware of them
-    from .models import User, Subscription, Flashcard  # noqa: F401
+    from .models import User, Subscription, Flashcard  # noqa
 
     # Register blueprints
     from .views import views_bp
@@ -37,7 +37,7 @@ def create_app():
     app.register_blueprint(auth_bp, url_prefix="/auth")
     app.register_blueprint(billing_bp, url_prefix="/billing")
 
-    # Login manager config
+    # Login manager configuration
     login_manager.login_view = "auth.login"
     login_manager.login_message_category = "info"
 
@@ -54,9 +54,9 @@ def create_app():
     with app.app_context():
         db.create_all()
 
-        # Add missing columns safely (no migration tools required)
+        # Patch schema safely without Alembic
         alter_statements = [
-            # Plan / subscription
+            # Plan / subscription fields
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS plan VARCHAR(50) DEFAULT 'free'",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255)",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(255)",
@@ -65,22 +65,19 @@ def create_app():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE",
 
             # Monthly quota fields
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_card_quota INTEGER DEFAULT 1000",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS cards_generated_this_month INTEGER DEFAULT 0",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_reset_at TIMESTAMP",
+            'ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_card_quota INTEGER DEFAULT 1000',
+            'ALTER TABLE users ADD COLUMN IF NOT EXISTS cards_generated_this_month INTEGER DEFAULT 0',
+            'ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_reset_at TIMESTAMP',
 
             # Daily quota fields
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_cards_generated INTEGER DEFAULT 0",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_reset_date DATE",
+            'ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_cards_generated INTEGER DEFAULT 0',
+            'ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_reset_date DATE',
 
-            # ------------------------------
-            # REQUIRED TOKEN COLUMNS
-            # (fix for Google login failure)
-            # ------------------------------
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_input_tokens BIGINT DEFAULT 0",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_output_tokens BIGINT DEFAULT 0",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_input_tokens BIGINT DEFAULT 0",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_output_tokens BIGINT DEFAULT 0",
+            # Token tracking fields (required to stop Google login errors)
+            'ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_input_tokens BIGINT DEFAULT 0',
+            'ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_output_tokens BIGINT DEFAULT 0',
+            'ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_input_tokens BIGINT DEFAULT 0',
+            'ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_output_tokens BIGINT DEFAULT 0',
         ]
 
         for sql in alter_statements:
@@ -88,6 +85,7 @@ def create_app():
                 db.session.execute(text(sql))
                 db.session.commit()
             except Exception:
+                # Column may already exist — safely continue
                 db.session.rollback()
 
     return app

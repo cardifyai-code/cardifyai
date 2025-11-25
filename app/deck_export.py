@@ -1,21 +1,68 @@
 import io
 import csv
+import json
+import random
+import time
+from typing import List, Dict
+
 import genanki
-from typing import List, Dict, Any
 
 
-# Stable deterministic IDs (important for Anki so imports merge nicely)
-MODEL_ID = 1607392319
-DECK_ID = 2059400110
-
-
-def _build_anki_model() -> genanki.Model:
+def _normalize_flashcards(
+    flashcards: List[Dict[str, str]]
+) -> List[Dict[str, str]]:
     """
-    Create a basic front/back card model for Anki.
+    Normalize flashcard dicts to always have lowercase 'front' and 'back' keys
+    and ensure they are strings.
     """
-    return genanki.Model(
-        MODEL_ID,
-        "CardifyAI Basic Model",
+    normalized: List[Dict[str, str]] = []
+
+    for card in flashcards or []:
+        if not isinstance(card, dict):
+            continue
+
+        front = (
+            card.get("front")
+            or card.get("Front")
+            or card.get("question")
+            or card.get("Question")
+        )
+        back = (
+            card.get("back")
+            or card.get("Back")
+            or card.get("answer")
+            or card.get("Answer")
+        )
+
+        if not front or not back:
+            continue
+
+        normalized.append(
+            {
+                "front": str(front),
+                "back": str(back),
+            }
+        )
+
+    return normalized
+
+
+def create_apkg_from_flashcards(
+    flashcards: List[Dict[str, str]],
+    deck_name: str = "CardifyLabs Deck",
+) -> io.BytesIO:
+    """
+    Create an Anki .apkg file from flashcards using genanki.
+    Returns an in-memory BytesIO suitable for Flask send_file().
+    """
+    cards = _normalize_flashcards(flashcards)
+
+    deck_id = int(time.time()) + random.randint(0, 1_000_000)
+    model_id = deck_id + 1
+
+    my_model = genanki.Model(
+        model_id,
+        "CardifyLabs Basic Model",
         fields=[
             {"name": "Front"},
             {"name": "Back"},
@@ -24,70 +71,83 @@ def _build_anki_model() -> genanki.Model:
             {
                 "name": "Card 1",
                 "qfmt": "{{Front}}",
-                "afmt": "{{Front}}<br><hr id='answer'>{{Back}}",
-            }
+                "afmt": "{{Front}}<br><br>{{Back}}",
+            },
         ],
     )
 
-
-def create_apkg_from_cards(
-    cards: List[Dict[str, Any]],
-    deck_name: str = "CardifyAI Deck",
-) -> bytes:
-    """
-    Build an Anki .apkg file from cards:
-      [{"front": "...", "back": "..."}, ...]
-    Returns bytes for direct download via send_file.
-    """
-    model = _build_anki_model()
-    deck = genanki.Deck(DECK_ID, deck_name)
-
-    for index, card in enumerate(cards):
-        front = (card.get("front") or "").strip()
-        back = (card.get("back") or "").strip()
-
-        if not front or not back:
-            continue
-
-        # Stable GUID from card contents so duplicates merge
-        guid = str(abs(hash(front + back + str(index))))
-
-        note = genanki.Note(
-            model=model,
-            fields=[front, back],
-            guid=guid,
-        )
-
-        deck.add_note(note)
-
-    pkg = genanki.Package(deck)
-    stream = io.BytesIO()
-    pkg.write_to_buffer(stream)
-
-    return stream.getvalue()
-
-
-def create_csv_from_cards(cards: List[Dict[str, Any]]) -> bytes:
-    """
-    Export cards to CSV. Returns UTF-8 encoded CSV bytes.
-    Columns: Front, Back
-    """
-    output = io.StringIO()
-    writer = csv.writer(output)
-
-    writer.writerow(["Front", "Back"])  # Header row
+    my_deck = genanki.Deck(deck_id, deck_name)
 
     for card in cards:
-        front = (card.get("front") or "").replace("\n", " ").strip()
-        back = (card.get("back") or "").replace("\n", " ").strip()
+        note = genanki.Note(
+            model=my_model,
+            fields=[card["front"], card["back"]],
+        )
+        my_deck.add_note(note)
 
-        if not front or not back:
-            continue
+    package = genanki.Package(my_deck)
+    mem_stream = io.BytesIO()
+    package.write_to_file(mem_stream)
+    mem_stream.seek(0)
+    return mem_stream
 
-        writer.writerow([front, back])
 
-    csv_data = output.getvalue()
-    output.close()
+def create_csv_from_flashcards(
+    flashcards: List[Dict[str, str]],
+) -> io.BytesIO:
+    """
+    Create a CSV export of flashcards.
+    Returns an in-memory BytesIO suitable for Flask send_file().
+    """
+    cards = _normalize_flashcards(flashcards)
 
-    # Add BOM so Excel loads UTF-8 correctly
-    return ("\ufeff" + csv_data).encode("utf-8")
+    text_stream = io.StringIO()
+    writer = csv.writer(text_stream)
+    writer.writerow(["Front", "Back"])
+
+    for card in cards:
+        writer.writerow([card["front"], card["back"]])
+
+    # Convert text to bytes
+    bytes_stream = io.BytesIO(text_stream.getvalue().encode("utf-8"))
+    bytes_stream.seek(0)
+    return bytes_stream
+
+
+def create_json_from_flashcards(
+    flashcards: List[Dict[str, str]],
+    deck_name: str = "CardifyLabs Deck",
+) -> io.BytesIO:
+    """
+    Optional JSON export of flashcards (not strictly needed, but handy).
+    Returns an in-memory BytesIO.
+    """
+    cards = _normalize_flashcards(flashcards)
+
+    payload = {
+        "deck_name": deck_name,
+        "cards": cards,
+    }
+
+    bytes_stream = io.BytesIO(json.dumps(payload, indent=2).encode("utf-8"))
+    bytes_stream.seek(0)
+    return bytes_stream
+
+
+# --------------------------------------------------------------------
+# Backwards-compatible aliases (in case any old code still imports
+# create_apkg_from_cards / create_csv_from_cards).
+# --------------------------------------------------------------------
+
+
+def create_apkg_from_cards(
+    cards: List[Dict[str, str]],
+    deck_name: str = "CardifyLabs Deck",
+) -> io.BytesIO:
+    return create_apkg_from_flashcards(cards, deck_name=deck_name)
+
+
+def create_csv_from_cards(
+    cards: List[Dict[str, str]],
+) -> io.BytesIO:
+    return create_csv_from_flashcards(cards)

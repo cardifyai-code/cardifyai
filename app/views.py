@@ -25,25 +25,36 @@ from .config import Config
 views_bp = Blueprint("views", __name__)
 
 # =============================
-# Card limits by tier
+# Card limits by tier/plan
 # =============================
 
 TIER_LIMITS = {
-    "free": 10,           # 10 cards/day logged-in free
-    "basic": 1_000,       # Basic plan
-    "premium": 5_000,     # Premium plan
-    "professional": 50_000,  # Professional plan
+    "free": 10,             # 10 cards/day
+    "basic": 1_000,         # Basic plan
+    "premium": 5_000,       # Premium plan
+    "professional": 50_000, # Professional plan
 }
 
 ADMIN_LIMIT = 3_000_000  # effectively unlimited for you
 
 
 def get_daily_limit(user: User) -> int:
-    """Return the daily card limit based on the user's tier (or admin)."""
+    """
+    Return the daily card limit based on the user's plan (or admin).
+    We also gracefully fall back to an old 'tier' attribute if it exists.
+    """
     if getattr(user, "is_admin", False):
         return ADMIN_LIMIT
-    tier = (user.tier or "free").lower()
-    return TIER_LIMITS.get(tier, TIER_LIMITS["free"])
+
+    # Support both new "plan" and any legacy "tier" if present
+    plan_or_tier = (
+        getattr(user, "plan", None)
+        or getattr(user, "tier", None)
+        or "free"
+    )
+
+    tier_key = str(plan_or_tier).lower()
+    return TIER_LIMITS.get(tier_key, TIER_LIMITS["free"])
 
 
 def ensure_daily_reset(user: User) -> None:
@@ -70,7 +81,6 @@ def index():
     if current_user.is_authenticated:
         return redirect(url_for("views.dashboard"))
 
-    # Anonymous visitors see marketing page
     return render_template("index.html")
 
 
@@ -81,7 +91,7 @@ def dashboard():
     Core app screen:
     - Shows text box + PDF upload
     - Calls OpenAI to generate flashcards
-    - Enforces per-day limits by tier
+    - Enforces per-day limits by plan
     - Stores cards in session for export/download
     """
     ensure_daily_reset(current_user)
@@ -174,7 +184,6 @@ def dashboard():
     return render_template(
         "dashboard.html",
         cards=cards,
-        tier=current_user.tier,
         daily_limit=daily_limit,
         used=used,
         remaining=remaining,
@@ -216,7 +225,6 @@ def download(fmt: str):
         )
 
     elif fmt == "json":
-        # Build JSON directly here; no need for a helper in deck_export
         json_str = json.dumps(cards, ensure_ascii=False, indent=2)
         json_bytes = BytesIO(json_str.encode("utf-8"))
         return send_file(

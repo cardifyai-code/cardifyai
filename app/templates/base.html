@@ -45,7 +45,7 @@
               <li class="nav-item me-3">
                 <span class="navbar-text text-light">
                   Plan:
-                  <strong>{{ (current_user.tier or 'free')|capitalize }}</strong>
+                  <strong>{{ (current_user.plan or 'free')|capitalize }}</strong>
                   {% if current_user.is_admin %}
                     <span class="badge bg-warning text-dark ms-1">Admin</span>
                   {% endif %}

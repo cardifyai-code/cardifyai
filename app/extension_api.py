@@ -1,14 +1,16 @@
-from flask import Blueprint, request, jsonify, url_for, current_app
+# app/extension_api.py
+
+from flask import Blueprint, request, jsonify, url_for, current_app, session
 from flask_login import login_required, current_user
 
 from . import db
-from .models import Deck, Flashcard
-from .ai import generate_flashcards
+from .models import Flashcard
+from .ai import generate_flashcards_from_text
 
-# Create blueprint for the Chrome Extension API
-extension_api = Blueprint("extension_api", __name__, url_prefix="/api/extension")
+# We do NOT set url_prefix here, it's added in app/__init__.py
+extension_api = Blueprint("extension_api", __name__)
 
-# Which plans are allowed to use the extension
+# Only paid plans can use the Chrome extension
 PAID_PLANS = {"premium", "professional"}
 
 
@@ -16,89 +18,130 @@ PAID_PLANS = {"premium", "professional"}
 @login_required
 def extension_generate():
     """
-    This API endpoint is used exclusively by the Chrome extension.
+    Endpoint used by the Chrome extension.
 
-    Responsibilities:
-    - Validates login (Flask-Login)
-    - Validates active subscription (premium or professional)
-    - Accepts text + number of flashcards
-    - Calls OpenAI generator (generate_flashcards)
-    - Creates a new deck & flashcards in the database
-    - Returns a redirect URL for the extension to open
+    Flow:
+    - Require login (Flask-Login)
+    - Require paid plan (premium/professional)
+    - Accept JSON: { "text": str, "num_cards": int }
+    - Generate flashcards via OpenAI
+    - Save them to the Flashcard table
+    - Store them in session["cards"] so /dashboard can display/export
+    - Return a redirect URL for the extension to open
     """
 
     # ---------------------------
-    # SUBSCRIPTION VALIDATION
+    # SUBSCRIPTION CHECK
     # ---------------------------
-    if current_user.plan not in PAID_PLANS:
-        # This URL will redirect user to Stripe Billing Portal
+    plan = (current_user.plan or "free").lower()
+    if plan not in PAID_PLANS and not getattr(current_user, "is_admin", False):
+        # Send them to billing portal if they aren't allowed
         billing_url = url_for("billing.billing_portal", _external=True)
-
         return jsonify({
+            "ok": False,
             "error": "Subscription required",
-            "redirect_url": billing_url
+            "reason": "billing_required",
+            "redirect_url": billing_url,
         }), 402
 
     # ---------------------------
-    # REQUEST PAYLOAD
+    # READ REQUEST BODY
     # ---------------------------
     data = request.get_json(silent=True) or {}
-
     text = (data.get("text") or "").strip()
-    num_cards = int(data.get("num_cards") or 10)
+    try:
+        num_cards = int(data.get("num_cards") or 10)
+    except (TypeError, ValueError):
+        num_cards = 10
 
     if not text:
-        return jsonify({"error": "No text provided"}), 400
+        return jsonify({
+            "ok": False,
+            "error": "No text provided",
+            "reason": "no_text",
+        }), 400
 
-    # Clamp between 1 and 200
-    num_cards = max(1, min(num_cards, 200))
+    # Clamp num_cards to something reasonable
+    if num_cards < 1:
+        num_cards = 1
+    if num_cards > 200:
+        num_cards = 200
 
     # ---------------------------
     # GENERATE FLASHCARDS
     # ---------------------------
     try:
-        cards = generate_flashcards(
-            text=text,
-            num_cards=num_cards
+        cards = generate_flashcards_from_text(
+            source_text=text,
+            num_cards=num_cards,
         )
     except Exception as e:
-        current_app.logger.exception("Chrome Extension AI generation failed")
-        return jsonify({"error": str(e)}), 500
+        current_app.logger.exception("Extension AI generation failed")
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+            "reason": "ai_error",
+        }), 500
+
+    if not cards:
+        return jsonify({
+            "ok": False,
+            "error": "No cards generated",
+            "reason": "no_cards",
+        }), 200
+
+    used = len(cards)
 
     # ---------------------------
-    # CREATE DECK
+    # SAVE FLASHCARDS TO DB
     # ---------------------------
-    deck = Deck(
-        user_id=current_user.id,
-        title="Generated via Chrome Extension"
-    )
-    db.session.add(deck)
-    db.session.commit()
+    try:
+        for c in cards:
+            front = str(c.get("front", "")).strip()
+            back = str(c.get("back", "")).strip()
+            if not front or not back:
+                continue
+
+            fc = Flashcard(
+                user_id=current_user.id,
+                front=front,
+                back=back,
+                source_type="extension",  # distinct from "dashboard"
+            )
+            db.session.add(fc)
+
+        # Update usage counters (analytics)
+        if current_user.daily_cards_generated is None:
+            current_user.daily_cards_generated = 0
+        if current_user.cards_generated_this_month is None:
+            current_user.cards_generated_this_month = 0
+
+        current_user.daily_cards_generated += used
+        current_user.cards_generated_this_month += used
+
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Error saving extension flashcards to DB")
 
     # ---------------------------
-    # SAVE FLASHCARDS
+    # STORE IN SESSION FOR EXPORT UI
     # ---------------------------
-    for c in cards:
-        fc = Flashcard(
-            deck_id=deck.id,
-            front=c["front"],
-            back=c["back"]
-        )
-        db.session.add(fc)
-
-    db.session.commit()
+    try:
+        # So /dashboard can immediately show/export them
+        session["cards"] = cards
+    except Exception:
+        # Session failure shouldn't kill the API
+        current_app.logger.exception("Error storing cards in session")
 
     # ---------------------------
     # BUILD REDIRECT URL
     # ---------------------------
-    deck_url = url_for("views.view_deck", deck_id=deck.id, _external=True)
+    dashboard_url = url_for("views.dashboard", _external=True)
 
-    # ---------------------------
-    # SEND RESPONSE TO EXTENSION
-    # ---------------------------
     return jsonify({
         "ok": True,
-        "redirect_url": deck_url,
-        "deck_url": deck_url,
-        "cards_created": len(cards)
+        "reason": "success",
+        "redirect_url": dashboard_url,
+        "cards_created": used,
     }), 200

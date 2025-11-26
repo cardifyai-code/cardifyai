@@ -93,6 +93,11 @@ def _normalize_cards(raw: str) -> List[Dict[str, str]]:
     """
     Parse the model response as JSON and normalize into:
       [{"front": "...", "back": "..."}, ...]
+
+    Robust against:
+      - Extra logging around the JSON array
+      - Non-dict items in the array
+      - Whitespace-only fronts/backs (which we now drop)
     """
     if not raw:
         return []
@@ -112,24 +117,34 @@ def _normalize_cards(raw: str) -> List[Dict[str, str]]:
         return []
 
     cards: List[Dict[str, str]] = []
+
     for item in data:
         if not isinstance(item, dict):
             continue
-        front = (
+
+        # Pull raw values from several possible keys
+        front_raw = (
             item.get("front")
             or item.get("Front")
             or item.get("question")
             or item.get("Question")
         )
-        back = (
+        back_raw = (
             item.get("back")
             or item.get("Back")
             or item.get("answer")
             or item.get("Answer")
         )
+
+        # Normalize & strip BEFORE validating, so whitespace-only fields are dropped
+        front = str(front_raw or "").strip()
+        back = str(back_raw or "").strip()
+
+        # Skip if either side is empty after stripping
         if not front or not back:
             continue
-        cards.append({"front": str(front).strip(), "back": str(back).strip()})
+
+        cards.append({"front": front, "back": back})
 
     return cards
 

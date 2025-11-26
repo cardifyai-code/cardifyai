@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Cardify with CardifyAI",
+  "version": "1.0.0",
+  "description": "Highlight text anywhere on the web and instantly generate flashcards with CardifyAI.",
+  "icons": {
+    "16": "CardifyLogo-16.PNG",
+    "32": "CardifyLogo-32.PNG",
+    "48": "CardifyLogo-48.PNG",
+    "64": "CardifyLogo-64.PNG",
+    "128": "CardifyLogo-128.PNG",
+    "256": "CardifyLogo-256.PNG",
+    "512": "CardifyLogo-512.PNG"
+  },
+  "action": {
+    "default_title": "Cardify with CardifyAI",
+    "default_icon": {
+      "16": "CardifyLogo-16.PNG",
+      "32": "CardifyLogo-32.PNG",
+      "48": "CardifyLogo-48.PNG",
+      "128": "CardifyLogo-128.PNG"
+    }
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "https://cardifylabs.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "contentScript.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

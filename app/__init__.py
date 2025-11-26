@@ -34,10 +34,12 @@ def create_app():
     from .views import views_bp
     from .auth import auth_bp
     from .billing import billing_bp
+    from .extension_api import extension_api  # NEW
 
     app.register_blueprint(views_bp)
     app.register_blueprint(auth_bp, url_prefix="/auth")
     app.register_blueprint(billing_bp, url_prefix="/billing")
+    app.register_blueprint(extension_api, url_prefix="/api/extension")  # NEW
 
     # ------------------------
     # Login manager settings

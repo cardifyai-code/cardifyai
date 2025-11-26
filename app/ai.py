@@ -94,22 +94,28 @@ def _normalize_cards(raw: str) -> List[Dict[str, str]]:
     Parse the model response as JSON and normalize into:
       [{"front": "...", "back": "..."}, ...]
 
-    Robust against:
-      - Extra logging around the JSON array
-      - Non-dict items in the array
-      - Whitespace-only fronts/backs (which we now drop)
+    Hard guarantees:
+    - front and back are always stripped strings.
+    - No card is returned if front or back is empty after stripping.
     """
     if not raw:
         return []
 
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        # Try to salvage JSON inside text if there's extra logging
+    # Try normal JSON parsing first
+    def _parse_json(text: str):
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return None
+
+    data = _parse_json(raw)
+
+    # If that fails, try to salvage the JSON array between first '[' and last ']'
+    if data is None:
         try:
             start = raw.index("[")
             end = raw.rindex("]") + 1
-            data = json.loads(raw[start:end])
+            data = _parse_json(raw[start:end])
         except Exception:
             return []
 
@@ -122,25 +128,25 @@ def _normalize_cards(raw: str) -> List[Dict[str, str]]:
         if not isinstance(item, dict):
             continue
 
-        # Pull raw values from several possible keys
-        front_raw = (
+        # Pull possible keys for front/back
+        raw_front = (
             item.get("front")
             or item.get("Front")
             or item.get("question")
             or item.get("Question")
         )
-        back_raw = (
+        raw_back = (
             item.get("back")
             or item.get("Back")
             or item.get("answer")
             or item.get("Answer")
         )
 
-        # Normalize & strip BEFORE validating, so whitespace-only fields are dropped
-        front = str(front_raw or "").strip()
-        back = str(back_raw or "").strip()
+        # Normalize to strings & strip BEFORE validating emptiness
+        front = str(raw_front).strip() if raw_front is not None else ""
+        back = str(raw_back).strip() if raw_back is not None else ""
 
-        # Skip if either side is empty after stripping
+        # Skip any card where either side is empty after stripping
         if not front or not back:
             continue
 
@@ -227,8 +233,19 @@ STRICT ANSWER RULES:
 - Prefer concrete facts, definitions, lists, cause-effect relationships, numerical values,
   and clearly stated comparisons or distinctions from the text.
 
-Return up to {target_cards} flashcards for **this segment** as JSON,
-following the system instructions.
+OUTPUT FORMAT (MANDATORY):
+- Return a JSON array.
+- Each element must be an object with EXACTLY two keys: "front" and "back".
+- Both "front" and "back" must be non-empty strings after trimming whitespace.
+- Do not include any extra commentary, explanations, or keys outside the JSON.
+
+Example:
+[
+  {{ "front": "What is X?", "back": "X is ..." }},
+  {{ "front": "Define Y", "back": "Y is defined as ..." }}
+]
+
+Return up to {target_cards} flashcards for **this segment** as JSON only.
 Here is the segment text:
 
 \"\"\"{segment_text}\"\"\"
@@ -312,21 +329,34 @@ def generate_flashcards_from_text(
             target_cards=segment_target,
         )
 
+        # Filter again at this level just in case
+        seg_cards = [
+            c
+            for c in seg_cards
+            if c.get("front") and c.get("back")
+            and str(c["front"]).strip()
+            and str(c["back"]).strip()
+        ]
+
         all_cards.extend(seg_cards)
         remaining_cards -= len(seg_cards)
 
         total_input_tokens += seg_in
         total_output_tokens += seg_out
 
-    # Deduplicate by (front, back)
+    # Deduplicate by (front, back) after stripping
     seen = set()
     deduped: List[Dict[str, str]] = []
     for card in all_cards:
-        key = (card["front"], card["back"])
+        front = str(card.get("front", "")).strip()
+        back = str(card.get("back", "")).strip()
+        if not front or not back:
+            continue
+        key = (front, back)
         if key in seen:
             continue
         seen.add(key)
-        deduped.append(card)
+        deduped.append({"front": front, "back": back})
 
     # If model returned more than requested across segments, trim.
     if len(deduped) > num_cards:

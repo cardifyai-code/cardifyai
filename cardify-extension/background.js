@@ -40,7 +40,7 @@ async function handleGenerateRequest(payload, sendResponse) {
     const { text, num_cards } = payload || {};
 
     if (!text || !text.trim()) {
-      sendResponse({
+      sendResponse?.({
         ok: false,
         reason: "no_text"
       });
@@ -65,7 +65,7 @@ async function handleGenerateRequest(payload, sendResponse) {
     // 401: Not logged in
     if (resp.status === 401) {
       await openOrFocus("/auth/login?next=/dashboard");
-      sendResponse({
+      sendResponse?.({
         ok: false,
         reason: "not_logged_in"
       });
@@ -85,7 +85,7 @@ async function handleGenerateRequest(payload, sendResponse) {
       const redirectUrl = data.redirect_url || "/billing/portal";
 
       await openOrFocus(redirectUrl);
-      sendResponse({
+      sendResponse?.({
         ok: false,
         reason: "billing_required"
       });
@@ -95,7 +95,7 @@ async function handleGenerateRequest(payload, sendResponse) {
     // Other non-OK error
     if (!resp.ok) {
       console.error("CardifyAI extension API error:", resp.status);
-      sendResponse({
+      sendResponse?.({
         ok: false,
         reason: "server_error",
         status: resp.status
@@ -113,13 +113,13 @@ async function handleGenerateRequest(payload, sendResponse) {
 
     await openOrFocus(redirectUrl);
 
-    sendResponse({
+    sendResponse?.({
       ok: true,
       reason: "success"
     });
   } catch (err) {
     console.error("CardifyAI extension fetch failed:", err);
-    sendResponse({
+    sendResponse?.({
       ok: false,
       reason: "network_error"
     });
@@ -136,6 +136,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   try {
     await chrome.tabs.sendMessage(tab.id, { type: "CARDIFY_START" });
   } catch (err) {
+    // This will happen on pages where content scripts can't run (chrome://, PDFs, etc.)
     console.error("Error sending CARDIFY_START:", err);
   }
 });
@@ -153,15 +154,74 @@ chrome.runtime.onInstalled.addListener(() => {
 
 /**
  * Handle context menu clicks.
+ *
+ * IMPORTANT CHANGE:
+ *  - We no longer send CARDIFY_START to the content script here.
+ *  - Instead, we:
+ *      1) take info.selectionText directly
+ *      2) prompt the user for # of cards via executeScript in the page
+ *      3) call handleGenerateRequest(...) directly from the background
+ *  => Works even if contentScript isn't loaded.
  */
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId === "cardify-generate-selection" && tab && tab.id) {
+  if (info.menuItemId !== "cardify-generate-selection" || !tab || !tab.id) {
+    return;
+  }
+
+  const selectedText = (info.selectionText || "").trim();
+  if (!selectedText) {
+    // No text (shouldn't happen given "selection" context, but safe)
     try {
-      // Just trigger the same flow as clicking the icon
-      await chrome.tabs.sendMessage(tab.id, { type: "CARDIFY_START" });
-    } catch (err) {
-      console.error("Error sending CARDIFY_START from context menu:", err);
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          alert("CardifyAI: Please highlight some text first.");
+        }
+      });
+    } catch (e) {
+      console.warn("CardifyAI: unable to show alert in page", e);
     }
+    return;
+  }
+
+  try {
+    // Ask the user how many cards to generate, INSIDE the page,
+    // so we can show a normal window.prompt.
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        let defaultCount = "20";
+        const input = prompt(
+          "How many flashcards would you like to generate? (1–200)",
+          defaultCount
+        );
+        if (input === null) {
+          // user cancelled
+          return null;
+        }
+        const trimmed = input.trim();
+        if (!trimmed) return null;
+        let num = parseInt(trimmed, 10);
+        if (!Number.isFinite(num)) return null;
+        if (num < 1) num = 1;
+        if (num > 200) num = 200;
+        return num;
+      }
+    });
+
+    if (result === null) {
+      // user cancelled or invalid
+      return;
+    }
+
+    // Now call the backend directly
+    await handleGenerateRequest(
+      { text: selectedText, num_cards: result },
+      // Provide a no-op sendResponse for the shared code
+      () => {}
+    );
+  } catch (err) {
+    console.error("Error handling context menu click:", err);
   }
 });
 

@@ -25,7 +25,9 @@
     "activeTab",
     "scripting",
     "storage",
-    "contextMenus"
+    "contextMenus",
+    "tabs",
+    "windows"
   ],
   "host_permissions": [
     "https://cardifylabs.com/*"

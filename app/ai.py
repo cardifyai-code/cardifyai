@@ -2,11 +2,13 @@
 
 import json
 import re
-from typing import List, Dict, Tuple
+from typing import List, Dict
 
 from openai import OpenAI
+from flask_login import current_user
 
 from .config import Config, SYSTEM_PROMPT
+from . import db
 
 client = OpenAI()
 
@@ -89,88 +91,129 @@ def _segment_text(text: str, max_chars: int = 6000) -> List[str]:
     return segments
 
 
+def _normalize_single_card(obj) -> Dict[str, str] | None:
+    """
+    Normalize a single 'card-like' object into:
+        {"front": "...", "back": "..."}
+
+    Handles:
+      - dict with front/back/Front/Back/question/answer
+      - list/tuple like ["front", "back"]
+
+    Returns None if malformed or empty.
+    """
+    front = ""
+    back = ""
+
+    from_dict = False
+    if isinstance(obj, dict):
+        from_dict = True
+        front = (
+            obj.get("front")
+            or obj.get("Front")
+            or obj.get("question")
+            or obj.get("Question")
+            or ""
+        )
+        back = (
+            obj.get("back")
+            or obj.get("Back")
+            or obj.get("answer")
+            or obj.get("Answer")
+            or ""
+        )
+        front = str(front).strip()
+        back = str(back).strip()
+
+    elif isinstance(obj, (list, tuple)) and len(obj) >= 2:
+        front = str(obj[0]).strip()
+        back = str(obj[1]).strip()
+
+    if not front or not back:
+        return None
+
+    return {"front": front, "back": back}
+
+
 def _normalize_cards(raw: str) -> List[Dict[str, str]]:
     """
     Parse the model response as JSON and normalize into:
       [{"front": "...", "back": "..."}, ...]
 
-    Hard guarantees:
-    - front and back are always stripped strings.
-    - No card is returned if front or back is empty after stripping.
+    We are tolerant to:
+      - Extra text around the JSON array
+      - A top-level {"cards": [...]} wrapper
+      - list-of-lists like ["front", "back"]
     """
     if not raw:
         return []
 
-    # Try normal JSON parsing first
-    def _parse_json(text: str):
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            return None
-
-    data = _parse_json(raw)
-
-    # If that fails, try to salvage the JSON array between first '[' and last ']'
-    if data is None:
+    # First try a straight JSON parse
+    data = None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        # Try to salvage JSON array inside text if there's extra logging
         try:
             start = raw.index("[")
             end = raw.rindex("]") + 1
-            data = _parse_json(raw[start:end])
+            fragment = raw[start:end]
+            data = json.loads(fragment)
         except Exception:
-            return []
+            # As a last resort, try a top-level object with "cards"
+            try:
+                start = raw.index("{")
+                end = raw.rindex("}") + 1
+                obj = json.loads(raw[start:end])
+                if isinstance(obj, dict) and "cards" in obj:
+                    data = obj["cards"]
+            except Exception:
+                return []
+
+    # If we still don't have data, bail
+    if data is None:
+        return []
+
+    # Allow {"cards": [...]} shape
+    if isinstance(data, dict) and "cards" in data:
+        data = data["cards"]
 
     if not isinstance(data, list):
         return []
 
     cards: List[Dict[str, str]] = []
+    seen = set()
 
     for item in data:
-        if not isinstance(item, dict):
+        card = _normalize_single_card(item)
+        if not card:
             continue
-
-        # Pull possible keys for front/back
-        raw_front = (
-            item.get("front")
-            or item.get("Front")
-            or item.get("question")
-            or item.get("Question")
-        )
-        raw_back = (
-            item.get("back")
-            or item.get("Back")
-            or item.get("answer")
-            or item.get("Answer")
-        )
-
-        # Normalize to strings & strip BEFORE validating emptiness
-        front = str(raw_front).strip() if raw_front is not None else ""
-        back = str(raw_back).strip() if raw_back is not None else ""
-
-        # Skip any card where either side is empty after stripping
-        if not front or not back:
+        key = (card["front"], card["back"])
+        if key in seen:
             continue
-
-        cards.append({"front": front, "back": back})
+        seen.add(key)
+        cards.append(card)
 
     return cards
 
 
-def _extract_usage_tokens(response) -> Tuple[int, int]:
+def _record_token_usage(response) -> None:
     """
-    Safely extract input/output token counts from the OpenAI response.
+    Update current_user's token counters from an OpenAI response, if available.
+    Safe to call even if there's no logged-in user or no usage info.
+    """
+    if not getattr(current_user, "is_authenticated", False):
+        return
 
-    Returns:
-      (input_tokens, output_tokens)
-    """
     usage = getattr(response, "usage", None)
     if not usage:
-        return 0, 0
+        return
 
-    # Newer style: input_tokens / output_tokens
+    # Newer OpenAI clients often expose usage as .input_tokens / .output_tokens
+    # but we also fall back to prompt_tokens / completion_tokens if needed.
     in_tokens = getattr(usage, "input_tokens", None)
     out_tokens = getattr(usage, "output_tokens", None)
 
-    # Fallback to older style: prompt_tokens / completion_tokens
     if in_tokens is None and hasattr(usage, "prompt_tokens"):
         in_tokens = usage.prompt_tokens
     if out_tokens is None and hasattr(usage, "completion_tokens"):
@@ -186,7 +229,16 @@ def _extract_usage_tokens(response) -> Tuple[int, int]:
     except Exception:
         out_tokens = 0
 
-    return in_tokens, out_tokens
+    # Update user fields
+    current_user.daily_input_tokens = (current_user.daily_input_tokens or 0) + in_tokens
+    current_user.daily_output_tokens = (current_user.daily_output_tokens or 0) + out_tokens
+    current_user.monthly_input_tokens = (current_user.monthly_input_tokens or 0) + in_tokens
+    current_user.monthly_output_tokens = (current_user.monthly_output_tokens or 0) + out_tokens
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
 
 
 def _call_openai_for_segment(
@@ -194,7 +246,7 @@ def _call_openai_for_segment(
     segment_index: int,
     total_segments: int,
     target_cards: int,
-) -> Tuple[List[Dict[str, str]], int, int]:
+) -> List[Dict[str, str]]:
     """
     Call OpenAI for a single segment of the text.
 
@@ -205,12 +257,9 @@ def _call_openai_for_segment(
           * Use all important info from this segment
           * Produce up to 'target_cards' cards
       - Extra constraints to force concrete, passage-anchored answers.
-
-    Returns:
-      (cards, input_tokens, output_tokens)
     """
     if target_cards <= 0:
-        return [], 0, 0
+        return []
 
     # Safety clamp
     target_cards = max(1, min(target_cards, 2000))
@@ -233,19 +282,12 @@ STRICT ANSWER RULES:
 - Prefer concrete facts, definitions, lists, cause-effect relationships, numerical values,
   and clearly stated comparisons or distinctions from the text.
 
-OUTPUT FORMAT (MANDATORY):
-- Return a JSON array.
-- Each element must be an object with EXACTLY two keys: "front" and "back".
-- Both "front" and "back" must be non-empty strings after trimming whitespace.
-- Do not include any extra commentary, explanations, or keys outside the JSON.
+Return up to {target_cards} flashcards for **this segment** as a JSON array.
+Each item MUST be an object with string fields:
+  - "front": the question/prompt side of the card
+  - "back": the answer/explanation side of the card
 
-Example:
-[
-  {{ "front": "What is X?", "back": "X is ..." }},
-  {{ "front": "Define Y", "back": "Y is defined as ..." }}
-]
-
-Return up to {target_cards} flashcards for **this segment** as JSON only.
+Do not include any extra commentary or text outside the JSON.
 Here is the segment text:
 
 \"\"\"{segment_text}\"\"\"
@@ -253,23 +295,24 @@ Here is the segment text:
 
     response = client.chat.completions.create(
         model=Config.OPENAI_MODEL,
-        messages=[
+        messages[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_instructions},
         ],
         temperature=0.3,
     )
 
+    # Track token usage on the current user, if possible
+    _record_token_usage(response)
+
     content = response.choices[0].message.content or ""
-    cards = _normalize_cards(content)
-    in_tokens, out_tokens = _extract_usage_tokens(response)
-    return cards, in_tokens, out_tokens
+    return _normalize_cards(content)
 
 
 def generate_flashcards_from_text(
     source_text: str,
     num_cards: int = 10,
-) -> Tuple[List[Dict[str, str]], int, int]:
+) -> List[Dict[str, str]]:
     """
     Main API for the rest of the app.
 
@@ -284,11 +327,11 @@ def generate_flashcards_from_text(
     - Trims to at most num_cards cards.
 
     Returns:
-      (cards, total_input_tokens, total_output_tokens)
+      List[{"front": str, "back": str}]
     """
     cleaned = _clean_text(source_text)
     if not cleaned:
-        return [], 0, 0
+        return []
 
     # Safety on num_cards
     if num_cards <= 0:
@@ -298,14 +341,12 @@ def generate_flashcards_from_text(
 
     segments = _segment_text(cleaned)
     if not segments:
-        return [], 0, 0
+        return []
 
     total_length = sum(len(s) for s in segments)
     remaining_cards = num_cards
 
     all_cards: List[Dict[str, str]] = []
-    total_input_tokens = 0
-    total_output_tokens = 0
 
     for idx, segment in enumerate(segments):
         if remaining_cards <= 0:
@@ -322,44 +363,28 @@ def generate_flashcards_from_text(
         if segment_target > remaining_cards:
             segment_target = remaining_cards
 
-        seg_cards, seg_in, seg_out = _call_openai_for_segment(
+        segment_cards = _call_openai_for_segment(
             segment_text=segment,
             segment_index=idx,
             total_segments=len(segments),
             target_cards=segment_target,
         )
 
-        # Filter again at this level just in case
-        seg_cards = [
-            c
-            for c in seg_cards
-            if c.get("front") and c.get("back")
-            and str(c["front"]).strip()
-            and str(c["back"]).strip()
-        ]
+        all_cards.extend(segment_cards)
+        remaining_cards -= len(segment_cards)
 
-        all_cards.extend(seg_cards)
-        remaining_cards -= len(seg_cards)
-
-        total_input_tokens += seg_in
-        total_output_tokens += seg_out
-
-    # Deduplicate by (front, back) after stripping
+    # Deduplicate by (front, back)
     seen = set()
     deduped: List[Dict[str, str]] = []
     for card in all_cards:
-        front = str(card.get("front", "")).strip()
-        back = str(card.get("back", "")).strip()
-        if not front or not back:
-            continue
-        key = (front, back)
+        key = (card["front"], card["back"])
         if key in seen:
             continue
         seen.add(key)
-        deduped.append({"front": front, "back": back})
+        deduped.append(card)
 
     # If model returned more than requested across segments, trim.
     if len(deduped) > num_cards:
         deduped = deduped[:num_cards]
 
-    return deduped, total_input_tokens, total_output_tokens
+    return deduped

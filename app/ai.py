@@ -105,9 +105,7 @@ def _normalize_single_card(obj) -> Dict[str, str] | None:
     front = ""
     back = ""
 
-    from_dict = False
     if isinstance(obj, dict):
-        from_dict = True
         front = (
             obj.get("front")
             or obj.get("Front")
@@ -148,8 +146,9 @@ def _normalize_cards(raw: str) -> List[Dict[str, str]]:
     if not raw:
         return []
 
-    # First try a straight JSON parse
     data = None
+
+    # First try a straight JSON parse
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
@@ -170,7 +169,6 @@ def _normalize_cards(raw: str) -> List[Dict[str, str]]:
             except Exception:
                 return []
 
-    # If we still don't have data, bail
     if data is None:
         return []
 
@@ -295,7 +293,7 @@ Here is the segment text:
 
     response = client.chat.completions.create(
         model=Config.OPENAI_MODEL,
-        messages[
+        messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_instructions},
         ],

@@ -64,10 +64,10 @@ PLAN_PRICES = {
     "professional": 19.99,
 }
 
-
 # ============================================================
 # Helper functions
 # ============================================================
+
 
 def get_daily_limit(user: User) -> int:
     """Return the per-day flashcard limit based on the user's plan."""
@@ -106,9 +106,11 @@ def log_visit(path: str) -> None:
     try:
         v = Visit(
             path=path,
-            user_id=current_user.id
-            if getattr(current_user, "is_authenticated", False)
-            else None,
+            user_id=(
+                current_user.id
+                if getattr(current_user, "is_authenticated", False)
+                else None
+            ),
             ip_address=request.remote_addr or "",
             user_agent=request.headers.get("User-Agent", "")[:512],
         )
@@ -119,9 +121,77 @@ def log_visit(path: str) -> None:
         current_app.logger.exception("Error logging visit for path %s", path)
 
 
+def _normalize_single_card(obj):
+    """
+    Take a 'card-like' object from the AI and normalize it into:
+
+        {"front": "...", "back": "..."}
+
+    Returns None if it's malformed or empty.
+    Handles:
+      - dict with front/back or Front/Back
+      - list/tuple like ["front", "back"]
+    """
+    front = ""
+    back = ""
+
+    if isinstance(obj, dict):
+        front = (
+            obj.get("front")
+            or obj.get("Front")
+            or obj.get("question")
+            or obj.get("Question")
+            or ""
+        )
+        back = (
+            obj.get("back")
+            or obj.get("Back")
+            or obj.get("answer")
+            or obj.get("Answer")
+            or ""
+        )
+        front = str(front).strip()
+        back = str(back).strip()
+
+    elif isinstance(obj, (list, tuple)) and len(obj) >= 2:
+        front = str(obj[0]).strip()
+        back = str(obj[1]).strip()
+
+    if not front or not back:
+        return None
+
+    return {"front": front, "back": back}
+
+
+def normalize_cards_list(raw_cards):
+    """
+    Normalize and deduplicate a list of card-like objects from the AI.
+
+    Returns a list of dicts with guaranteed non-empty 'front' and 'back'.
+    """
+    normalized = []
+    seen = set()
+
+    if not isinstance(raw_cards, list):
+        return normalized
+
+    for c in raw_cards:
+        card = _normalize_single_card(c)
+        if not card:
+            continue
+        key = (card["front"], card["back"])
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(card)
+
+    return normalized
+
+
 # ============================================================
 # Public routes
 # ============================================================
+
 
 @views_bp.route("/", methods=["GET"])
 def index():
@@ -210,7 +280,8 @@ def dashboard():
         # ------------ Enforce daily limits ---------------
         daily_limit = get_daily_limit(current_user)
         remaining = max(
-            0, daily_limit - (current_user.daily_cards_generated or 0)
+            0,
+            daily_limit - (current_user.daily_cards_generated or 0),
         )
 
         if remaining <= 0:
@@ -235,10 +306,13 @@ def dashboard():
 
         # ------------ Direct AI call ---------------
         try:
-            new_cards = generate_flashcards_from_text(
+            raw_cards = generate_flashcards_from_text(
                 combined_text,
                 num_cards=num_cards,
             )
+
+            # Normalize + deduplicate + strip blank/garbage cards
+            new_cards = normalize_cards_list(raw_cards)
 
             if not new_cards:
                 flash(
@@ -276,21 +350,29 @@ def dashboard():
             except Exception:
                 db.session.rollback()
 
-            # Persist cards for analytics
+            # Persist cards for analytics (defensive against weird structures)
             try:
                 for c in new_cards:
+                    # At this point, new_cards are normalized dicts,
+                    # but we still guard anyway.
+                    card = _normalize_single_card(c)
+                    if not card:
+                        continue
+
                     fc = Flashcard(
                         user_id=current_user.id,
-                        front=c.get("front", ""),
-                        back=c.get("back", ""),
+                        front=card["front"],
+                        back=card["back"],
                         source_type="dashboard",
                     )
                     db.session.add(fc)
+
                 db.session.commit()
             except Exception:
                 db.session.rollback()
                 current_app.logger.exception("Error saving flashcards to DB")
 
+            # Save normalized cards to session
             session["cards"] = new_cards
             cards = new_cards
 
@@ -358,6 +440,7 @@ def download(fmt: str):
 # ============================================================
 # Admin dashboard (cost + revenue + users)
 # ============================================================
+
 
 @views_bp.route("/admin", methods=["GET"])
 @login_required
@@ -471,6 +554,7 @@ def admin_dashboard():
 # ============================================================
 # Admin Analytics (charts, visits, subs, cards)
 # ============================================================
+
 
 @views_bp.route("/admin/analytics", methods=["GET"])
 @login_required

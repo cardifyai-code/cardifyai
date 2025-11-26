@@ -32,7 +32,7 @@ from .config import Config
 views_bp = Blueprint("views", __name__)
 
 # ============================================================
-# Card limits by plan
+# Card limits by plan (DAILY ONLY)
 # ============================================================
 
 PLAN_LIMITS = {
@@ -67,7 +67,6 @@ PLAN_PRICES = {
 # ============================================================
 # Helper functions
 # ============================================================
-
 
 def get_daily_limit(user: User) -> int:
     """Return the per-day flashcard limit based on the user's plan."""
@@ -106,11 +105,9 @@ def log_visit(path: str) -> None:
     try:
         v = Visit(
             path=path,
-            user_id=(
-                current_user.id
-                if getattr(current_user, "is_authenticated", False)
-                else None
-            ),
+            user_id=current_user.id
+            if getattr(current_user, "is_authenticated", False)
+            else None,
             ip_address=request.remote_addr or "",
             user_agent=request.headers.get("User-Agent", "")[:512],
         )
@@ -121,77 +118,9 @@ def log_visit(path: str) -> None:
         current_app.logger.exception("Error logging visit for path %s", path)
 
 
-def _normalize_single_card(obj):
-    """
-    Take a 'card-like' object from the AI and normalize it into:
-
-        {"front": "...", "back": "..."}
-
-    Returns None if it's malformed or empty.
-    Handles:
-      - dict with front/back or Front/Back
-      - list/tuple like ["front", "back"]
-    """
-    front = ""
-    back = ""
-
-    if isinstance(obj, dict):
-        front = (
-            obj.get("front")
-            or obj.get("Front")
-            or obj.get("question")
-            or obj.get("Question")
-            or ""
-        )
-        back = (
-            obj.get("back")
-            or obj.get("Back")
-            or obj.get("answer")
-            or obj.get("Answer")
-            or ""
-        )
-        front = str(front).strip()
-        back = str(back).strip()
-
-    elif isinstance(obj, (list, tuple)) and len(obj) >= 2:
-        front = str(obj[0]).strip()
-        back = str(obj[1]).strip()
-
-    if not front or not back:
-        return None
-
-    return {"front": front, "back": back}
-
-
-def normalize_cards_list(raw_cards):
-    """
-    Normalize and deduplicate a list of card-like objects from the AI.
-
-    Returns a list of dicts with guaranteed non-empty 'front' and 'back'.
-    """
-    normalized = []
-    seen = set()
-
-    if not isinstance(raw_cards, list):
-        return normalized
-
-    for c in raw_cards:
-        card = _normalize_single_card(c)
-        if not card:
-            continue
-        key = (card["front"], card["back"])
-        if key in seen:
-            continue
-        seen.add(key)
-        normalized.append(card)
-
-    return normalized
-
-
 # ============================================================
 # Public routes
 # ============================================================
-
 
 @views_bp.route("/", methods=["GET"])
 def index():
@@ -209,7 +138,7 @@ def dashboard():
     Main generator UI:
     - Text + PDF input
     - Calls AI generator directly (no Celery/Redis)
-    - Enforces daily limits
+    - Enforces daily limits (NO MONTHLY LIMIT)
     - Stores cards in session for export/download
     """
     log_visit("/dashboard")
@@ -277,11 +206,10 @@ def dashboard():
 
         requested_num = max(1, min(requested_num, 2000))
 
-        # ------------ Enforce daily limits ---------------
+        # ------------ Enforce DAILY limits only ---------------
         daily_limit = get_daily_limit(current_user)
         remaining = max(
-            0,
-            daily_limit - (current_user.daily_cards_generated or 0),
+            0, daily_limit - (current_user.daily_cards_generated or 0)
         )
 
         if remaining <= 0:
@@ -306,13 +234,10 @@ def dashboard():
 
         # ------------ Direct AI call ---------------
         try:
-            raw_cards = generate_flashcards_from_text(
+            new_cards = generate_flashcards_from_text(
                 combined_text,
                 num_cards=num_cards,
             )
-
-            # Normalize + deduplicate + strip blank/garbage cards
-            new_cards = normalize_cards_list(raw_cards)
 
             if not new_cards:
                 flash(
@@ -338,9 +263,12 @@ def dashboard():
             used = len(new_cards)
 
             # Track usage (cards)
+            # DAILY limit enforcement only; monthly is just analytics count
             current_user.daily_cards_generated = (
                 current_user.daily_cards_generated or 0
             ) + used
+
+            # Monthly usage counter (for analytics ONLY, not a limit)
             if current_user.cards_generated_this_month is None:
                 current_user.cards_generated_this_month = 0
             current_user.cards_generated_this_month += used
@@ -350,29 +278,34 @@ def dashboard():
             except Exception:
                 db.session.rollback()
 
-            # Persist cards for analytics (defensive against weird structures)
+            # Persist cards for analytics (Flashcard table)
             try:
                 for c in new_cards:
-                    # At this point, new_cards are normalized dicts,
-                    # but we still guard anyway.
-                    card = _normalize_single_card(c)
-                    if not card:
+                    # c should be a dict, but be defensive
+                    if isinstance(c, dict):
+                        front = str(c.get("front", "")).strip()
+                        back = str(c.get("back", "")).strip()
+                    elif isinstance(c, (list, tuple)) and len(c) >= 2:
+                        front = str(c[0]).strip()
+                        back = str(c[1]).strip()
+                    else:
+                        continue
+
+                    if not front or not back:
                         continue
 
                     fc = Flashcard(
                         user_id=current_user.id,
-                        front=card["front"],
-                        back=card["back"],
+                        front=front,
+                        back=back,
                         source_type="dashboard",
                     )
                     db.session.add(fc)
-
                 db.session.commit()
             except Exception:
                 db.session.rollback()
                 current_app.logger.exception("Error saving flashcards to DB")
 
-            # Save normalized cards to session
             session["cards"] = new_cards
             cards = new_cards
 
@@ -438,16 +371,16 @@ def download(fmt: str):
 
 
 # ============================================================
-# Admin dashboard (cost + revenue + users)
+# Admin dashboard (cost + revenue + users, NO monthly limit)
 # ============================================================
-
 
 @views_bp.route("/admin", methods=["GET"])
 @login_required
 def admin_dashboard():
     """
     Admin-only panel showing:
-    - All users, their plans, and usage details
+    - All users, their plans, and DAILY usage details
+    - Cards generated this month (analytics only)
     - Aggregated token usage + estimated cost
     - Estimated monthly revenue by plan
     """
@@ -466,9 +399,10 @@ def admin_dashboard():
     total_monthly_input = 0
     total_monthly_output = 0
 
-    # Revenue aggregates (per-user & total)
+    # Revenue / cost aggregates
     total_estimated_revenue = 0.0
     total_estimated_cost = 0.0
+    total_monthly_cards = 0  # analytics only
 
     user_rows = []
 
@@ -478,11 +412,9 @@ def admin_dashboard():
         daily_used = u.daily_cards_generated or 0
         daily_remaining = max(0, daily_limit - daily_used)
 
-        monthly_quota = u.monthly_card_quota or 0
-        monthly_used = u.cards_generated_this_month or 0
-        monthly_remaining = (
-            max(0, monthly_quota - monthly_used) if monthly_quota > 0 else None
-        )
+        # Monthly cards = how many cards they generated this month
+        monthly_cards = u.cards_generated_this_month or 0
+        total_monthly_cards += monthly_cards
 
         d_in = u.daily_input_tokens or 0
         d_out = u.daily_output_tokens or 0
@@ -515,9 +447,7 @@ def admin_dashboard():
                 "daily_limit": daily_limit,
                 "daily_used": daily_used,
                 "daily_remaining": daily_remaining,
-                "monthly_quota": monthly_quota,
-                "monthly_used": monthly_used,
-                "monthly_remaining": monthly_remaining,
+                "monthly_cards": monthly_cards,  # analytics only
                 "daily_input_tokens": d_in,
                 "daily_output_tokens": d_out,
                 "monthly_input_tokens": m_in,
@@ -537,6 +467,7 @@ def admin_dashboard():
         plan_counts=plan_counts,
         plan_limits=PLAN_LIMITS,
         total_users=len(users),
+        total_monthly_cards=total_monthly_cards,
         # token usage aggregate
         total_daily_input_tokens=total_daily_input,
         total_daily_output_tokens=total_daily_output,
@@ -554,7 +485,6 @@ def admin_dashboard():
 # ============================================================
 # Admin Analytics (charts, visits, subs, cards)
 # ============================================================
-
 
 @views_bp.route("/admin/analytics", methods=["GET"])
 @login_required

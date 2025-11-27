@@ -26,7 +26,7 @@ async function openOrFocusTab(pathOrUrl = "/dashboard") {
 
 /**
  * Small helper: show a loading overlay on the current page.
- * It will be removed when we redirect or if we explicitly call removeLoadingOverlay.
+ * It will be removed when we explicitly call removeLoadingOverlay.
  */
 async function showLoadingOverlay(tabId, message) {
   try {
@@ -45,7 +45,8 @@ async function showLoadingOverlay(tabId, message) {
           overlay.style.background = "rgba(0,0,0,0.85)";
           overlay.style.color = "#fff";
           overlay.style.borderRadius = "8px";
-          overlay.style.fontFamily = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+          overlay.style.fontFamily =
+            "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
           overlay.style.fontSize = "13px";
           overlay.style.display = "flex";
           overlay.style.alignItems = "center";
@@ -92,7 +93,7 @@ async function showLoadingOverlay(tabId, message) {
 }
 
 /**
- * Update the overlay text (e.g., on error or success).
+ * Update the overlay text (e.g., on progress).
  */
 async function updateLoadingOverlay(tabId, message) {
   try {
@@ -200,75 +201,25 @@ async function collectFromPage(tabId, selectionOverride) {
 }
 
 /**
- * Actually call the backend API:
- * POST https://cardifylabs.com/api/extension/generate
- * Body: { text, num_cards }
- *
- * The API:
- *  - checks login
- *  - checks subscription
- *  - generates cards & stores them in DB + session["cards"]
- *  - returns JSON with a redirect_url (usually /dashboard)
+ * Helper: send the "fill and submit" message into the Cardify dashboard tab.
  */
-async function handleGenerateRequestFromPage(tabId, payload) {
-  await showLoadingOverlay(tabId, "CardifyAI: Generating flashcards…");
-
-  try {
-    const { text, num_cards } = payload;
-
-    const resp = await fetch(`${CARDIFY_BASE}/api/extension/generate`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      credentials: "include", // IMPORTANT so Flask session / login is used
-      body: JSON.stringify({ text, num_cards })
-    });
-
-    let data = {};
-    try {
-      data = await resp.json();
-    } catch {
-      data = {};
+function sendFillMessage(dashboardTabId, payload, sourceTabId) {
+  chrome.tabs.sendMessage(
+    dashboardTabId,
+    {
+      type: "CARDIFY_FILL_AND_SUBMIT",
+      payload
+    },
+    () => {
+      if (chrome.runtime.lastError) {
+        console.warn("[CardifyAI] Error sending CARDIFY_FILL_AND_SUBMIT:", chrome.runtime.lastError);
+      }
+      // Remove overlay on the original page once we've handed off to the dashboard
+      if (sourceTabId) {
+        removeLoadingOverlay(sourceTabId);
+      }
     }
-
-    // Not logged in
-    if (resp.status === 401 || data.reason === "not_logged_in") {
-      await updateLoadingOverlay(tabId, "CardifyAI: Please log in first…");
-      await openOrFocusTab("/auth/login?next=/dashboard");
-      // overlay will disappear once user leaves the page; we also remove explicitly:
-      await removeLoadingOverlay(tabId);
-      return;
-    }
-
-    // Billing / subscription issue
-    if (resp.status === 402 || resp.status === 403 || data.reason === "billing_required") {
-      await updateLoadingOverlay(tabId, "CardifyAI: Subscription required. Opening billing…");
-      const billingUrl = data.redirect_url || "/billing/portal";
-      await openOrFocusTab(billingUrl);
-      await removeLoadingOverlay(tabId);
-      return;
-    }
-
-    if (!resp.ok || data.ok === false) {
-      console.error("[CardifyAI] Server error:", resp.status, data);
-      await updateLoadingOverlay(tabId, "CardifyAI: Error generating cards. Try again.");
-      setTimeout(() => removeLoadingOverlay(tabId), 2500);
-      return;
-    }
-
-    // Success → open dashboard (or whatever redirect_url is)
-    const redirectUrl = data.redirect_url || "/dashboard";
-
-    await updateLoadingOverlay(tabId, "CardifyAI: Done! Opening Cardify…");
-    await openOrFocusTab(redirectUrl);
-    // Remove overlay on the original page
-    await removeLoadingOverlay(tabId);
-  } catch (err) {
-    console.error("[CardifyAI] Network error:", err);
-    await updateLoadingOverlay(tabId, "CardifyAI: Network error. Try again.");
-    setTimeout(() => removeLoadingOverlay(tabId), 2500);
-  }
+  );
 }
 
 /**
@@ -278,9 +229,10 @@ async function handleGenerateRequestFromPage(tabId, payload) {
  *
  * Steps:
  *  1) Collect text + num_cards from the page
- *  2) POST to /api/extension/generate (JSON body → supports large text)
- *  3) Backend generates cards & stores in session
- *  4) We open/focus /dashboard so user sees the ready-made cards
+ *  2) Show a small loading overlay on the source page
+ *  3) Open/focus /dashboard
+ *  4) When /dashboard finishes loading, send CARDIFY_FILL_AND_SUBMIT
+ *     to the content script, which fills the form and submits it.
  */
 async function startCardifyFlow(tab, selectionOverride) {
   if (!tab || !tab.id) return;
@@ -297,7 +249,33 @@ async function startCardifyFlow(tab, selectionOverride) {
     return;
   }
 
-  await handleGenerateRequestFromPage(tab.id, collected);
+  // Show loading overlay on the page where the user invoked Cardify
+  await showLoadingOverlay(tab.id, "CardifyAI: Opening Cardify dashboard…");
+
+  // Open or focus the dashboard
+  const dashboardTab = await openOrFocusTab("/dashboard");
+
+  // If the dashboard is already fully loaded, send the message right away
+  if (dashboardTab.status === "complete") {
+    await updateLoadingOverlay(tab.id, "CardifyAI: Filling your Cardify deck…");
+    sendFillMessage(dashboardTab.id, collected, tab.id);
+    return;
+  }
+
+  // Otherwise, wait for the dashboard tab to finish loading
+  const originalTabId = tab.id;
+
+  const onUpdated = async (updatedTabId, info, updatedTab) => {
+    if (updatedTabId !== dashboardTab.id || info.status !== "complete") return;
+    if (!updatedTab.url || !updatedTab.url.startsWith(`${CARDIFY_BASE}/dashboard`)) return;
+
+    chrome.tabs.onUpdated.removeListener(onUpdated);
+
+    await updateLoadingOverlay(originalTabId, "CardifyAI: Filling your Cardify deck…");
+    sendFillMessage(updatedTabId, collected, originalTabId);
+  };
+
+  chrome.tabs.onUpdated.addListener(onUpdated);
 }
 
 /**
@@ -305,8 +283,8 @@ async function startCardifyFlow(tab, selectionOverride) {
  * When user clicks the extension icon:
  *  1. Get selected text (from page)
  *  2. Ask user for # of cards (via in-page prompt)
- *  3. POST to /api/extension/generate
- *  4. Redirect to /dashboard where cards are already ready
+ *  3. Open /dashboard
+ *  4. Auto-fill and submit the form there via CARDIFY_FILL_AND_SUBMIT
  */
 chrome.action.onClicked.addListener(async (tab) => {
   startCardifyFlow(tab, null);

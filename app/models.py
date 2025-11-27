@@ -66,6 +66,7 @@ class User(db.Model, UserMixin):
     flashcards = db.relationship("Flashcard", backref="user", lazy=True)
     subscriptions = db.relationship("Subscription", backref="user", lazy=True)
     visits = db.relationship("Visit", backref="user", lazy=True)
+    reviews = db.relationship("Review", backref="user", lazy=True)
 
     def __repr__(self) -> str:
         return f"<User id={self.id} email={self.email} plan={self.plan}>"
@@ -135,7 +136,8 @@ class Flashcard(db.Model):
     back = db.Column(db.Text, nullable=False)
 
     # Optional metadata
-    source_type = db.Column(db.String(50))  # e.g. "text", "pdf", "url"
+    # e.g. "text", "pdf", "url", "extension"
+    source_type = db.Column(db.String(50))
     source_title = db.Column(db.String(255))
     source_id = db.Column(db.String(255))  # if you later add docs/uploads
 
@@ -174,3 +176,60 @@ class Visit(db.Model):
 
     def __repr__(self) -> str:
         return f"<Visit id={self.id} path={self.path} user_id={self.user_id}>"
+
+
+class Review(db.Model):
+    """
+    User reviews for CardifyAI.
+
+    - Written by a user (optional: could be null if you later allow anonymous).
+    - is_approved allows you to moderate before showing on site/homepage.
+    """
+
+    __tablename__ = "reviews"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        nullable=True,
+        index=True,
+    )
+
+    # Simple 1–5 rating
+    rating = db.Column(db.Integer, nullable=False, default=5)
+
+    # Short title / headline for the review
+    title = db.Column(db.String(255), nullable=False)
+
+    # Full review text
+    body = db.Column(db.Text, nullable=False)
+
+    # Moderation flag (only approved reviews are shown publicly)
+    is_approved = db.Column(db.Boolean, default=True, index=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def __repr__(self) -> str:
+        return f"<Review id={self.id} user_id={self.user_id} rating={self.rating}>"
+
+    def display_author(self) -> str:
+        """
+        A simple helper for templates.
+        If the user exists, show their email (or part of it).
+        Otherwise, 'Anonymous'.
+        """
+        if getattr(self, "user", None) and self.user.email:
+            return self.user.email
+        return "Anonymous"
+
+    def short_body(self, max_len: int = 160) -> str:
+        """
+        Truncate the body for cards or compact displays.
+        """
+        if not self.body:
+            return ""
+        if len(self.body) <= max_len:
+            return self.body
+        return self.body[: max_len - 3] + "..."

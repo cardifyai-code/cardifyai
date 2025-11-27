@@ -1,0 +1,335 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="mb-1">Privacy Policy</h1>
+    <p class="text-muted mb-0">
+      How CardifyAI collects, uses, and protects your information.
+    </p>
+  </div>
+</div>
+
+<div class="card shadow-sm border-0 mb-4">
+  <div class="card-body">
+    <p class="text-muted small mb-1">
+      <strong>Last updated:</strong> {{ last_updated or "January 1, 2025" }}
+    </p>
+    <p class="small text-muted mb-0">
+      By using CardifyAI (the web app and browser extensions), you agree to this Privacy Policy.
+      If you do not agree, please do not use the service.
+    </p>
+  </div>
+</div>
+
+<div class="card shadow-sm border-0">
+  <div class="card-body">
+    <!-- 1. Overview -->
+    <h5 class="mb-2">1. Overview</h5>
+    <p class="small text-muted">
+      CardifyAI (“we”, “us”, or “our”) is a web application and browser extension that helps you
+      turn your notes, lectures, and PDFs into flashcards. This Privacy Policy explains what
+      information we collect, how we use it, and the choices you have.
+    </p>
+    <p class="small text-muted">
+      We are committed to:
+    </p>
+    <ul class="small text-muted">
+      <li>Collecting only what we need to provide and improve CardifyAI.</li>
+      <li>Not selling your personal information to third parties.</li>
+      <li>Using industry-standard safeguards to protect your data.</li>
+    </ul>
+
+    <hr>
+
+    <!-- 2. Information We Collect -->
+    <h5 class="mb-2">2. Information we collect</h5>
+
+    <h6 class="mt-3 mb-1 small text-uppercase text-muted">2.1 Account &amp; authentication information</h6>
+    <p class="small text-muted">
+      When you sign in with Google, we receive:
+    </p>
+    <ul class="small text-muted">
+      <li>Your Google account email address</li>
+      <li>Your Google account ID (a unique identifier)</li>
+    </ul>
+    <p class="small text-muted">
+      We use this information to create and identify your CardifyAI account, track your plan and
+      usage, and secure access to your data. We do not receive your Google password.
+    </p>
+
+    <h6 class="mt-3 mb-1 small text-uppercase text-muted">2.2 Subscription &amp; billing information</h6>
+    <p class="small text-muted">
+      If you upgrade to a paid plan, your payment is processed by our payment provider (e.g. Stripe).
+      We may store:
+    </p>
+    <ul class="small text-muted">
+      <li>A Stripe customer ID</li>
+      <li>Subscription IDs and related plan / price IDs</li>
+      <li>Subscription status (active, canceled, etc.)</li>
+    </ul>
+    <p class="small text-muted">
+      We do <strong>not</strong> store your full credit card number on our servers. Payment details
+      are handled and stored securely by Stripe or any other PCI-compliant payment processor we use.
+    </p>
+
+    <h6 class="mt-3 mb-1 small text-uppercase text-muted">2.3 Content you provide (notes, PDFs, flashcards)</h6>
+    <p class="small text-muted">
+      When you use CardifyAI, you may provide:
+    </p>
+    <ul class="small text-muted">
+      <li>Text you paste or type into the dashboard</li>
+      <li>PDF files you upload to extract text</li>
+      <li>Flashcards generated for your account</li>
+      <li>Reviews or feedback you submit about the app</li>
+    </ul>
+    <p class="small text-muted">
+      This content may be temporarily processed by AI models to generate flashcards.
+      We store your resulting flashcards and may keep limited logs or usage statistics to
+      operate and improve the service. We do not sell your raw study materials.
+    </p>
+
+    <h6 class="mt-3 mb-1 small text-uppercase text-muted">2.4 Browser extension information</h6>
+    <p class="small text-muted">
+      When you use the CardifyAI browser extension, it may:
+    </p>
+    <ul class="small text-muted">
+      <li>Read highlighted text on the page that you explicitly choose to send to CardifyAI.</li>
+      <li>Communicate with <code>cardifylabs.com</code> to create flashcards and open your dashboard.</li>
+      <li>Store a small preference (like your last used number of cards) in browser storage.</li>
+    </ul>
+    <p class="small text-muted">
+      The extension does <strong>not</strong> collect your browsing history, keystrokes, or other
+      website content beyond the specific text you highlight and choose to send.
+    </p>
+
+    <h6 class="mt-3 mb-1 small text-uppercase text-muted">2.5 Usage, analytics &amp; log data</h6>
+    <p class="small text-muted">
+      To understand how CardifyAI is used and to improve performance, we may collect:
+    </p>
+    <ul class="small text-muted">
+      <li>IP address and basic device information</li>
+      <li>Browser type and version</li>
+      <li>Pages visited on CardifyAI (e.g. dashboard, admin, extensions)</li>
+      <li>Timestamps and simple usage metrics (e.g. cards generated per day)</li>
+    </ul>
+    <p class="small text-muted">
+      We may use first-party analytics or privacy-focused third-party analytics tools to understand
+      aggregate usage patterns. We do not use analytics to uniquely fingerprint you for advertising.
+    </p>
+
+    <hr>
+
+    <!-- 3. How We Use Your Information -->
+    <h5 class="mb-2">3. How we use your information</h5>
+    <p class="small text-muted">
+      We use the information we collect for the following purposes:
+    </p>
+    <ul class="small text-muted">
+      <li>To provide and maintain the CardifyAI service and your account.</li>
+      <li>To generate flashcards from the content you submit.</li>
+      <li>To enforce plan limits (e.g., daily card limits per plan).</li>
+      <li>To process payments and manage subscriptions.</li>
+      <li>To monitor usage, prevent abuse, and secure the platform.</li>
+      <li>To respond to support requests, bug reports, and feedback.</li>
+      <li>To improve the product based on aggregate usage patterns.</li>
+    </ul>
+
+    <p class="small text-muted mb-1">
+      We do <strong>not</strong>:
+    </p>
+    <ul class="small text-muted">
+      <li>Sell your personal data to third parties.</li>
+      <li>Use your data for interest-based advertising or ad targeting.</li>
+      <li>Use or transfer your data for creditworthiness or lending decisions.</li>
+    </ul>
+
+    <hr>
+
+    <!-- 4. Legal Bases (for GDPR-style regions) -->
+    <h5 class="mb-2">4. Legal bases for processing (if applicable)</h5>
+    <p class="small text-muted">
+      If you are in the European Economic Area (EEA), United Kingdom, or other regions that
+      require a legal basis for processing, we typically rely on:
+    </p>
+    <ul class="small text-muted">
+      <li><strong>Contract:</strong> To provide the CardifyAI service you request.</li>
+      <li><strong>Legitimate interests:</strong> To improve and secure our service.</li>
+      <li><strong>Consent:</strong> For optional features where required by law.</li>
+    </ul>
+
+    <hr>
+
+    <!-- 5. When We Share Information -->
+    <h5 class="mb-2">5. When we share information</h5>
+    <p class="small text-muted">
+      We share your information only when necessary to operate CardifyAI or when required by law:
+    </p>
+    <ul class="small text-muted">
+      <li>
+        <strong>Service providers:</strong> Such as cloud hosting, payment processors (e.g. Stripe),
+        and AI infrastructure providers that help us deliver the core functionality.
+      </li>
+      <li>
+        <strong>Legal requirements:</strong> If we are required by law, subpoena, or court order,
+        or if we believe in good faith that disclosure is reasonably necessary to protect our rights,
+        users, or the public.
+      </li>
+      <li>
+        <strong>Business transfers:</strong> In the event of a merger, acquisition, or asset sale,
+        your data may be part of the transferred assets, subject to the same or similarly protective
+        privacy commitments.
+      </li>
+    </ul>
+    <p class="small text-muted">
+      We do not sell your personal information to advertisers or data brokers.
+    </p>
+
+    <hr>
+
+    <!-- 6. Cookies & Similar Technologies -->
+    <h5 class="mb-2">6. Cookies &amp; similar technologies</h5>
+    <p class="small text-muted">
+      CardifyAI uses cookies or similar technologies to:
+    </p>
+    <ul class="small text-muted">
+      <li>Keep you signed in to your account.</li>
+      <li>Remember basic preferences (e.g., plan, usage state).</li>
+      <li>Maintain secure sessions as you navigate the app.</li>
+    </ul>
+    <p class="small text-muted">
+      You can control cookies through your browser settings, but disabling essential cookies may
+      prevent the app from functioning properly.
+    </p>
+
+    <hr>
+
+    <!-- 7. Data Retention -->
+    <h5 class="mb-2">7. Data retention</h5>
+    <p class="small text-muted">
+      We keep your information only as long as necessary to provide the CardifyAI service or as
+      required by law. In general:
+    </p>
+    <ul class="small text-muted">
+      <li>Your account and flashcards remain stored while your account is active.</li>
+      <li>
+        Usage logs (such as visits and basic analytics) may be retained for a limited period
+        for security and performance monitoring.
+      </li>
+      <li>
+        Billing and subscription records may be retained longer to comply with tax and accounting
+        obligations.
+      </li>
+    </ul>
+
+    <hr>
+
+    <!-- 8. Security -->
+    <h5 class="mb-2">8. Security</h5>
+    <p class="small text-muted">
+      We use reasonable technical and organizational measures to protect your information,
+      including:
+    </p>
+    <ul class="small text-muted">
+      <li>Encrypted connections (HTTPS) between your browser and our servers.</li>
+      <li>Restricted access to production systems.</li>
+      <li>Secure third-party providers for payments and infrastructure.</li>
+    </ul>
+    <p class="small text-muted">
+      However, no online service can guarantee perfect security. You are responsible for
+      maintaining the security of your own devices and accounts.
+    </p>
+
+    <hr>
+
+    <!-- 9. Children’s Privacy -->
+    <h5 class="mb-2">9. Children’s privacy</h5>
+    <p class="small text-muted">
+      CardifyAI is not directed to children under the age of 13 (or the minimum age in your
+      jurisdiction). We do not knowingly collect personal information from children.
+      If you believe a child has provided us with personal information, please contact us so we
+      can take appropriate action.
+    </p>
+
+    <hr>
+
+    <!-- 10. Your Rights & Choices -->
+    <h5 class="mb-2">10. Your rights &amp; choices</h5>
+    <p class="small text-muted">
+      Depending on your location, you may have certain rights over your personal information,
+      including:
+    </p>
+    <ul class="small text-muted">
+      <li>Accessing a copy of your personal data.</li>
+      <li>Requesting correction of inaccurate or incomplete data.</li>
+      <li>Requesting deletion of your data, subject to legal obligations.</li>
+      <li>Objecting to or restricting certain types of processing.</li>
+      <li>Exporting your flashcards using our download options (e.g., Anki, CSV, JSON).</li>
+    </ul>
+    <p class="small text-muted">
+      To exercise these rights, please contact us using the information in the
+      <strong>Contact</strong> section below. We may need to verify your identity before
+      processing your request.
+    </p>
+
+    <hr>
+
+    <!-- 11. Browser Extension-Specific Disclosures -->
+    <h5 class="mb-2">11. Browser extension-specific disclosures</h5>
+    <p class="small text-muted">
+      For users of the CardifyAI browser extension:
+    </p>
+    <ul class="small text-muted">
+      <li>
+        The extension reads only the text you explicitly select and choose to send for flashcard
+        generation. It does not collect full-page content or your browsing history.
+      </li>
+      <li>
+        The extension communicates only with <code>cardifylabs.com</code> and your browser’s
+        internal APIs (such as context menus and active tab access) to enable the card generation
+        workflow.
+      </li>
+      <li>
+        The extension may store a small preference (such as your last used number of cards) in
+        browser storage to make your workflow faster.
+      </li>
+    </ul>
+    <p class="small text-muted">
+      All extension data usage adheres to this Privacy Policy and the Chrome Web Store / browser
+      extension policies where applicable.
+    </p>
+
+    <hr>
+
+    <!-- 12. Changes to This Policy -->
+    <h5 class="mb-2">12. Changes to this policy</h5>
+    <p class="small text-muted">
+      We may update this Privacy Policy from time to time to reflect changes in our practices,
+      technology, or legal requirements. When we do, we will update the “Last updated” date at
+      the top of this page. If changes are significant, we may also provide additional notice
+      (such as a banner in the app).
+    </p>
+    <p class="small text-muted">
+      Your continued use of CardifyAI after any changes means you accept the updated policy.
+    </p>
+
+    <hr>
+
+    <!-- 13. Contact -->
+    <h5 class="mb-2">13. Contact</h5>
+    <p class="small text-muted">
+      If you have questions, concerns, or requests related to this Privacy Policy, you can
+      contact us at:
+    </p>
+    <ul class="small text-muted">
+      <!-- TODO: replace this placeholder email with your real support email -->
+      <li>Email: <a href="mailto:support@cardifylabs.com">support@cardifylabs.com</a></li>
+    </ul>
+    <p class="small text-muted mb-0">
+      Please include enough detail for us to understand your question or request, and we’ll do
+      our best to respond within a reasonable time.
+    </p>
+  </div>
+</div>
+
+{% endblock %}

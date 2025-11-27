@@ -10,7 +10,7 @@ from .ai import generate_flashcards_from_text
 # We do NOT set url_prefix here, it's added in app/__init__.py
 extension_api = Blueprint("extension_api", __name__)
 
-# Only paid plans can use the Chrome/Edge extension
+# Only paid plans can use the browser extensions
 PAID_PLANS = {"premium", "professional"}
 
 
@@ -27,6 +27,7 @@ def extension_generate():
     - Save them to the Flashcard table
     - Store them in session["cards"] so /dashboard can display/export
     - ALSO store original text + num_cards in session so the dashboard form can pre-fill
+    - Mark that cards came from the extension (from_extension/cards_created)
     - Return a redirect URL for the extension to open
     """
 
@@ -35,12 +36,14 @@ def extension_generate():
     # ---------------------------
     if not current_user.is_authenticated:
         login_url = url_for("auth.login", _external=True)
-        return jsonify({
-            "ok": False,
-            "error": "Not logged in",
-            "reason": "not_logged_in",
-            "redirect_url": login_url,
-        }), 401
+        return jsonify(
+            {
+                "ok": False,
+                "error": "Not logged in",
+                "reason": "not_logged_in",
+                "redirect_url": login_url,
+            }
+        ), 401
 
     # ---------------------------
     # SUBSCRIPTION CHECK
@@ -49,12 +52,14 @@ def extension_generate():
     if plan not in PAID_PLANS and not getattr(current_user, "is_admin", False):
         # Send them to billing portal if they aren't allowed
         billing_url = url_for("billing.billing_portal", _external=True)
-        return jsonify({
-            "ok": False,
-            "error": "Subscription required",
-            "reason": "billing_required",
-            "redirect_url": billing_url,
-        }), 402
+        return jsonify(
+            {
+                "ok": False,
+                "error": "Subscription required",
+                "reason": "billing_required",
+                "redirect_url": billing_url,
+            }
+        ), 402
 
     # ---------------------------
     # READ REQUEST BODY
@@ -67,11 +72,13 @@ def extension_generate():
         num_cards = 10
 
     if not text:
-        return jsonify({
-            "ok": False,
-            "error": "No text provided",
-            "reason": "no_text",
-        }), 400
+        return jsonify(
+            {
+                "ok": False,
+                "error": "No text provided",
+                "reason": "no_text",
+            }
+        ), 400
 
     # Clamp num_cards to something reasonable (extension already enforces 1–200)
     if num_cards < 1:
@@ -89,18 +96,22 @@ def extension_generate():
         )
     except Exception as e:
         current_app.logger.exception("Extension AI generation failed")
-        return jsonify({
-            "ok": False,
-            "error": str(e),
-            "reason": "ai_error",
-        }), 500
+        return jsonify(
+            {
+                "ok": False,
+                "error": str(e),
+                "reason": "ai_error",
+            }
+        ), 500
 
     if not cards:
-        return jsonify({
-            "ok": False,
-            "error": "No cards generated",
-            "reason": "no_cards",
-        }), 200
+        return jsonify(
+            {
+                "ok": False,
+                "error": "No cards generated",
+                "reason": "no_cards",
+            }
+        ), 200
 
     used = len(cards)
 
@@ -109,6 +120,7 @@ def extension_generate():
     # ---------------------------
     try:
         for c in cards:
+            # c is expected to be a dict with "front"/"back"
             front = str(c.get("front", "")).strip()
             back = str(c.get("back", "")).strip()
             if not front or not back:
@@ -122,7 +134,7 @@ def extension_generate():
             )
             db.session.add(fc)
 
-        # Update usage counters (analytics)
+        # Update usage counters (analytics only)
         if current_user.daily_cards_generated is None:
             current_user.daily_cards_generated = 0
         if current_user.cards_generated_this_month is None:
@@ -146,6 +158,10 @@ def extension_generate():
         # So /dashboard can pre-fill the form with the original input
         session["ext_text"] = text
         session["ext_num_cards"] = num_cards
+
+        # Flags for “extension generated X cards” alert
+        session["from_extension"] = True
+        session["cards_created"] = used
     except Exception:
         # Session failure shouldn't kill the API
         current_app.logger.exception("Error storing extension data in session")
@@ -155,9 +171,11 @@ def extension_generate():
     # ---------------------------
     dashboard_url = url_for("views.dashboard", _external=True)
 
-    return jsonify({
-        "ok": True,
-        "reason": "success",
-        "redirect_url": dashboard_url,
-        "cards_created": used,
-    }), 200
+    return jsonify(
+        {
+            "ok": True,
+            "reason": "success",
+            "redirect_url": dashboard_url,
+            "cards_created": used,
+        }
+    ), 200

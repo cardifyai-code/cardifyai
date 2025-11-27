@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="mb-1">User Reviews</h1>
+    <p class="text-muted mb-0">
+      Share your experience with CardifyAI and see what other students think.
+    </p>
+  </div>
+</div>
+
+<div class="row g-4 mb-4">
+  <div class="col-lg-5">
+    <div class="card shadow-sm border-0">
+      <div class="card-body">
+        <h5 class="card-title mb-3">Leave a Review</h5>
+        <p class="small text-muted">
+          Your review helps other students decide if CardifyAI fits their workflow.
+          Reviews may be lightly moderated before appearing publicly.
+        </p>
+
+        <form method="post" action="{{ url_for('views.reviews') }}">
+          {# If you add CSRF protection later (Flask-WTF), include the token here #}
+          {# {{ form.csrf_token }} #}
+
+          <div class="mb-3">
+            <label for="rating" class="form-label">Rating</label>
+            <select
+              id="rating"
+              name="rating"
+              class="form-select form-select-sm"
+              required
+            >
+              <option value="5" selected>★★★★★ (5/5)</option>
+              <option value="4">★★★★☆ (4/5)</option>
+              <option value="3">★★★☆☆ (3/5)</option>
+              <option value="2">★★☆☆☆ (2/5)</option>
+              <option value="1">★☆☆☆☆ (1/5)</option>
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label for="title" class="form-label">Headline</label>
+            <input
+              type="text"
+              class="form-control form-control-sm"
+              id="title"
+              name="title"
+              maxlength="255"
+              placeholder="Short title for your review (e.g. 'Perfect for med school decks')"
+              required
+            >
+          </div>
+
+          <div class="mb-3">
+            <label for="body" class="form-label">Your Review</label>
+            <textarea
+              class="form-control"
+              id="body"
+              name="body"
+              rows="4"
+              placeholder="How are you using CardifyAI? What do you like, and what could be better?"
+              required
+            ></textarea>
+          </div>
+
+          <div class="mb-3 small text-muted">
+            Your review will show as your account email (or a shortened version)
+            unless you later change how names are displayed. The 5 most recent
+            reviews also appear on the home / login page.
+          </div>
+
+          <button type="submit" class="btn btn-primary w-100">
+            Submit Review
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="mb-0">Recent Reviews</h5>
+      <span class="badge bg-light text-muted border small">
+        Showing {{ reviews|length }} review{{ reviews|length != 1 and 's' or '' }}
+      </span>
+    </div>
+
+    {% if reviews %}
+      <div class="list-group">
+        {% for review in reviews %}
+          <div class="list-group-item list-group-item-action flex-column align-items-start">
+            <div class="d-flex w-100 justify-content-between align-items-center mb-1">
+              <h6 class="mb-0">
+                {{ review.title }}
+              </h6>
+              <small class="text-muted">
+                {{ review.created_at.strftime('%b %d, %Y') if review.created_at else '' }}
+              </small>
+            </div>
+
+            <div class="mb-1">
+              {# Simple star display #}
+              {% set r = review.rating or 5 %}
+              <span class="text-warning small">
+                {% for i in range(1, 6) %}
+                  {% if i <= r %}
+                    ★
+                  {% else %}
+                    ☆
+                  {% endif %}
+                {% endfor %}
+              </span>
+              <small class="text-muted ms-1">
+                by {{ review.display_author() }}
+              </small>
+            </div>
+
+            <p class="mb-0 small">
+              {{ review.body }}
+            </p>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="alert alert-light border small mb-0">
+        No reviews yet. Be the first to share how CardifyAI fits into your study routine.
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

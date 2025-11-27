@@ -19,7 +19,7 @@ from flask import (
 from flask_login import login_required, current_user
 
 from . import db
-from .models import User, Subscription, Flashcard, Visit
+from .models import User, Subscription, Flashcard, Visit, Review
 from .ai import generate_flashcards_from_text  # direct AI call
 from .pdf_utils import extract_text_from_pdf
 from .deck_export import (
@@ -63,6 +63,10 @@ PLAN_PRICES = {
     "premium": 7.99,
     "professional": 19.99,
 }
+
+# Plans that are allowed to access browser extension downloads
+EXTENSION_PLANS = {"premium", "professional"}
+
 
 # ============================================================
 # Helper functions
@@ -118,17 +122,42 @@ def log_visit(path: str) -> None:
         current_app.logger.exception("Error logging visit for path %s", path)
 
 
+def user_has_extension_access(user: User) -> bool:
+    """
+    Helper: return True if the user is allowed to access browser extensions.
+    """
+    if getattr(user, "is_admin", False):
+        return True
+    plan = (user.plan or "free").lower()
+    return plan in EXTENSION_PLANS
+
+
 # ============================================================
 # Public routes
 # ============================================================
 
 @views_bp.route("/", methods=["GET"])
 def index():
-    """Landing page."""
+    """
+    Landing page.
+
+    If authenticated, send straight to dashboard.
+    Otherwise, show marketing + selected reviews.
+    """
     log_visit("/")
+
     if current_user.is_authenticated:
         return redirect(url_for("views.dashboard"))
-    return render_template("index.html")
+
+    # Show a handful of recent, approved reviews on the homepage
+    homepage_reviews = (
+        Review.query.filter_by(is_approved=True)
+        .order_by(Review.created_at.desc())
+        .limit(6)
+        .all()
+    )
+
+    return render_template("index.html", homepage_reviews=homepage_reviews)
 
 
 @views_bp.route("/dashboard", methods=["GET", "POST"])
@@ -189,6 +218,7 @@ def dashboard():
                     cards_created=cards_created,
                     ext_text=ext_text,
                     ext_num_cards=ext_num_cards,
+                    has_extension_access=user_has_extension_access(current_user),
                 )
 
         # Combine text + PDF
@@ -214,6 +244,7 @@ def dashboard():
                 cards_created=cards_created,
                 ext_text=ext_text,
                 ext_num_cards=ext_num_cards,
+                has_extension_access=user_has_extension_access(current_user),
             )
 
         # ------------ Requested cards ---------------
@@ -250,6 +281,7 @@ def dashboard():
                 cards_created=cards_created,
                 ext_text=ext_text,
                 ext_num_cards=ext_num_cards,
+                has_extension_access=user_has_extension_access(current_user),
             )
 
         num_cards = min(requested_num, remaining)
@@ -284,6 +316,7 @@ def dashboard():
                     cards_created=cards_created,
                     ext_text=ext_text,
                     ext_num_cards=ext_num_cards,
+                    has_extension_access=user_has_extension_access(current_user),
                 )
 
             used = len(new_cards)
@@ -360,6 +393,7 @@ def dashboard():
         cards_created=cards_created,
         ext_text=ext_text,
         ext_num_cards=ext_num_cards,
+        has_extension_access=user_has_extension_access(current_user),
     )
 
 
@@ -398,6 +432,174 @@ def download(fmt: str):
 
     flash("Unknown export format.", "danger")
     return redirect(url_for("views.dashboard"))
+
+
+# ============================================================
+# Browser extension download routes (gated)
+# ============================================================
+
+@views_bp.route("/extensions/chrome", methods=["GET"])
+@login_required
+def extension_chrome():
+    """
+    Chrome extension link.
+    Only Premium / Professional (or admin) can access.
+    Others are redirected to Premium checkout.
+    """
+    log_visit("/extensions/chrome")
+
+    if not user_has_extension_access(current_user):
+        flash(
+            "Browser extensions are available for Premium and Professional users.",
+            "warning",
+        )
+        return redirect(url_for("billing.checkout", plan="premium"))
+
+    # Placeholder URL – replace with your actual Chrome Web Store URL
+    chrome_url = "https://example.com/chrome-extension-placeholder"
+    return redirect(chrome_url)
+
+
+@views_bp.route("/extensions/edge", methods=["GET"])
+@login_required
+def extension_edge():
+    """
+    Edge extension link.
+    Only Premium / Professional (or admin) can access.
+    """
+    log_visit("/extensions/edge")
+
+    if not user_has_extension_access(current_user):
+        flash(
+            "Browser extensions are available for Premium and Professional users.",
+            "warning",
+        )
+        return redirect(url_for("billing.checkout", plan="premium"))
+
+    # Placeholder URL – replace with your actual Edge Add-ons URL
+    edge_url = "https://example.com/edge-extension-placeholder"
+    return redirect(edge_url)
+
+
+@views_bp.route("/extensions/firefox", methods=["GET"])
+@login_required
+def extension_firefox():
+    """
+    Firefox extension link.
+    Only Premium / Professional (or admin) can access.
+    """
+    log_visit("/extensions/firefox")
+
+    if not user_has_extension_access(current_user):
+        flash(
+            "Browser extensions are available for Premium and Professional users.",
+            "warning",
+        )
+        return redirect(url_for("billing.checkout", plan="premium"))
+
+    # Placeholder URL – replace with your actual Firefox Add-ons URL
+    firefox_url = "https://example.com/firefox-extension-placeholder"
+    return redirect(firefox_url)
+
+
+# ============================================================
+# About / Privacy / Terms
+# ============================================================
+
+@views_bp.route("/about", methods=["GET"])
+def about():
+    """
+    About / tutorial page.
+    Your template can show:
+    - GIFs walking users through how to use CardifyAI
+    - Social media links
+    """
+    log_visit("/about")
+    return render_template("about.html")
+
+
+@views_bp.route("/privacy", methods=["GET"])
+def privacy():
+    """
+    Privacy policy page.
+    """
+    log_visit("/privacy")
+    return render_template("privacy.html")
+
+
+@views_bp.route("/terms", methods=["GET"])
+def terms():
+    """
+    Terms of use page.
+    """
+    log_visit("/terms")
+    return render_template("terms.html")
+
+
+# ============================================================
+# Reviews
+# ============================================================
+
+@views_bp.route("/reviews", methods=["GET", "POST"])
+def reviews():
+    """
+    Reviews page:
+    - GET: show list of approved reviews
+    - POST: allow logged-in users to submit a review
+    """
+    log_visit("/reviews")
+
+    if request.method == "POST":
+        # Require login to submit
+        if not current_user.is_authenticated:
+            flash("Please log in to leave a review.", "warning")
+            return redirect(url_for("auth.login", next=url_for("views.reviews")))
+
+        rating_raw = request.form.get("rating", "").strip()
+        title = (request.form.get("title") or "").strip()
+        body = (request.form.get("body") or "").strip()
+
+        # Basic validation
+        try:
+            rating = int(rating_raw or 5)
+        except ValueError:
+            rating = 5
+        if rating < 1:
+            rating = 1
+        if rating > 5:
+            rating = 5
+
+        if not title or not body:
+            flash("Please provide both a title and review body.", "warning")
+        else:
+            try:
+                r = Review(
+                    user_id=current_user.id,
+                    rating=rating,
+                    title=title,
+                    body=body,
+                    is_approved=True,  # you can change this to False if you want manual moderation
+                )
+                db.session.add(r)
+                db.session.commit()
+                flash("Thank you for your review!", "success")
+                return redirect(url_for("views.reviews"))
+            except Exception as e:
+                db.session.rollback()
+                current_app.logger.exception("Error saving review")
+                flash(f"Error saving your review: {e}", "danger")
+
+    # GET (and also fall-through if POST invalid)
+    approved_reviews = (
+        Review.query.filter_by(is_approved=True)
+        .order_by(Review.created_at.desc())
+        .all()
+    )
+
+    return render_template(
+        "reviews.html",
+        reviews=approved_reviews,
+    )
 
 
 # ============================================================

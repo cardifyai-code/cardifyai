@@ -1,0 +1,344 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="mb-1">Terms of Use</h1>
+    <p class="text-muted mb-0">
+      The rules and conditions for using CardifyAI and its browser extensions.
+    </p>
+  </div>
+</div>
+
+<div class="card shadow-sm border-0 mb-4">
+  <div class="card-body">
+    <p class="text-muted small mb-1">
+      <strong>Last updated:</strong> {{ last_updated or "January 1, 2025" }}
+    </p>
+    <p class="small text-muted mb-0">
+      By accessing or using CardifyAI (including the web app and browser extensions),
+      you agree to be bound by these Terms of Use. If you do not agree, you must
+      not use the service.
+    </p>
+  </div>
+</div>
+
+<div class="card shadow-sm border-0">
+  <div class="card-body">
+    <!-- 1. Agreement -->
+    <h5 class="mb-2">1. Agreement to terms</h5>
+    <p class="small text-muted">
+      These Terms of Use (“Terms”) form a legally binding agreement between you and
+      CardifyAI (“we”, “us”, or “our”) regarding your access to and use of:
+    </p>
+    <ul class="small text-muted">
+      <li>The CardifyAI website and web application located at <code>cardifylabs.com</code> (the “Site”);</li>
+      <li>The CardifyAI browser extensions for Chrome, Edge, and other browsers (the “Extensions”); and</li>
+      <li>Any related services, features, or content we provide (collectively, the “Service”).</li>
+    </ul>
+    <p class="small text-muted">
+      By creating an account, logging in, or using any part of the Service, you acknowledge
+      that you have read, understood, and agree to these Terms and our
+      <a href="{{ url_for('views.privacy') }}">Privacy Policy</a>.
+    </p>
+
+    <hr>
+
+    <!-- 2. Eligibility -->
+    <h5 class="mb-2">2. Eligibility</h5>
+    <p class="small text-muted">
+      You may use CardifyAI only if:
+    </p>
+    <ul class="small text-muted">
+      <li>You are at least 13 years old (or the minimum age in your jurisdiction); and</li>
+      <li>You have the legal authority to agree to these Terms on your own behalf; and</li>
+      <li>You comply with these Terms and all applicable laws.</li>
+    </ul>
+    <p class="small text-muted">
+      If you are using the Service on behalf of an organization, you represent and warrant that
+      you are authorized to accept these Terms on its behalf.
+    </p>
+
+    <hr>
+
+    <!-- 3. Account & Security -->
+    <h5 class="mb-2">3. Accounts and security</h5>
+    <p class="small text-muted">
+      To use CardifyAI, you may need to sign in via Google or another authentication method
+      we support. You are responsible for:
+    </p>
+    <ul class="small text-muted">
+      <li>Maintaining the confidentiality and security of your login credentials.</li>
+      <li>All activities that occur under your account.</li>
+      <li>Not sharing your account with others.</li>
+    </ul>
+    <p class="small text-muted">
+      You agree to notify us promptly if you suspect unauthorized use of your account.
+      We reserve the right to suspend or terminate your account for any violation of these Terms.
+    </p>
+
+    <hr>
+
+    <!-- 4. Subscriptions, Billing & Cancellation -->
+    <h5 class="mb-2">4. Subscriptions, billing, and cancellation</h5>
+    <p class="small text-muted">
+      CardifyAI offers both free and paid subscription plans. Plan features, pricing, and
+      limits (such as daily card generation limits) are described on the Site and may be
+      updated from time to time.
+    </p>
+    <ul class="small text-muted">
+      <li>
+        <strong>Billing:</strong> Paid plans are billed through our payment processor
+        (e.g., Stripe). By subscribing, you authorize us and our payment processor to
+        charge your chosen payment method on a recurring basis until you cancel.
+      </li>
+      <li>
+        <strong>Renewal:</strong> Subscriptions typically renew automatically at the end
+        of each billing period unless you cancel before your renewal date.
+      </li>
+      <li>
+        <strong>Cancellation:</strong> You can manage or cancel your subscription via
+        the billing portal (for example, through the “Manage Billing” link in the app).
+        Cancellation takes effect at the end of the current billing period, unless otherwise stated.
+      </li>
+      <li>
+        <strong>Refunds:</strong> Unless required by law, all fees are non-refundable.
+        In some cases, we may offer refunds or credits at our sole discretion.
+      </li>
+      <li>
+        <strong>Plan changes:</strong> We may modify plan features or pricing in the future.
+        If we make significant changes, we will take reasonable steps to notify you.
+      </li>
+    </ul>
+
+    <hr>
+
+    <!-- 5. Use of the Service -->
+    <h5 class="mb-2">5. License and acceptable use</h5>
+    <p class="small text-muted">
+      Subject to your compliance with these Terms, we grant you a limited, non-exclusive,
+      non-transferable, revocable license to:
+    </p>
+    <ul class="small text-muted">
+      <li>Access and use the Site and web app for your personal or internal use; and</li>
+      <li>Install and use the Extensions on devices you own or control, solely for use with your account.</li>
+    </ul>
+    <p class="small text-muted mb-1">
+      You agree <strong>not</strong> to:
+    </p>
+    <ul class="small text-muted">
+      <li>Use the Service for any illegal, harmful, or abusive purpose.</li>
+      <li>
+        Reverse engineer, decompile, or attempt to derive source code from the Service,
+        except where permitted by law.
+      </li>
+      <li>Bypass or interfere with security features or usage limits (such as daily card limits).</li>
+      <li>Upload or transmit any content that is unlawful, defamatory, or infringes another’s rights.</li>
+      <li>Use automated tools or bots to abuse the Service beyond what is reasonably expected.</li>
+      <li>Resell or sublicense access to CardifyAI without our prior written consent.</li>
+    </ul>
+
+    <hr>
+
+    <!-- 6. User Content (Notes, PDFs, Flashcards, Reviews) -->
+    <h5 class="mb-2">6. Your content (notes, PDFs, flashcards, reviews)</h5>
+    <p class="small text-muted">
+      You may submit content to CardifyAI, including text, notes, PDFs, and reviews
+      (“User Content”). You retain ownership of your User Content. However, by submitting
+      User Content, you grant us a worldwide, non-exclusive, royalty-free license to:
+    </p>
+    <ul class="small text-muted">
+      <li>Process the content to generate flashcards and related outputs for you.</li>
+      <li>Store and display your flashcards within your account.</li>
+      <li>
+        For reviews or feedback you submit, display them on the Site or in other promotional
+        materials, subject to moderation.
+      </li>
+    </ul>
+    <p class="small text-muted">
+      You represent and warrant that you have all necessary rights to submit the User Content and
+      that it does not violate any law or third-party rights (for example, copyright or privacy rights).
+    </p>
+
+    <hr>
+
+    <!-- 7. Reviews & Testimonials -->
+    <h5 class="mb-2">7. Reviews and testimonials</h5>
+    <p class="small text-muted">
+      CardifyAI may allow you to submit reviews or testimonials about the Service. By submitting a review:
+    </p>
+    <ul class="small text-muted">
+      <li>
+        You grant us permission to display, reproduce, and distribute your review (including
+        a display name, such as your first name or email handle) on the Site and in promotional
+        materials.
+      </li>
+      <li>
+        You agree that your review will be honest, based on your actual experience, and not
+        misleading or defamatory.
+      </li>
+      <li>
+        You understand that we may moderate, edit for clarity, or remove reviews at our sole
+        discretion (for example, if they violate these Terms or applicable law).
+      </li>
+    </ul>
+
+    <hr>
+
+    <!-- 8. Intellectual Property -->
+    <h5 class="mb-2">8. Intellectual property</h5>
+    <p class="small text-muted">
+      The CardifyAI Service, including all software, design, logos, text, graphics, and other content
+      we provide (excluding User Content), is owned by or licensed to us and is protected by
+      intellectual property laws.
+    </p>
+    <p class="small text-muted">
+      You agree not to remove or alter any proprietary notices, logos, or branding, and not to
+      use our trademarks in a way that suggests endorsement or affiliation without our prior
+      written consent.
+    </p>
+
+    <hr>
+
+    <!-- 9. AI-Generated Content Disclaimer -->
+    <h5 class="mb-2">9. AI-generated content disclaimer</h5>
+    <p class="small text-muted">
+      CardifyAI uses AI models to help generate flashcards and other outputs based on your input.
+      While we strive for accuracy and usefulness:
+    </p>
+    <ul class="small text-muted">
+      <li>AI-generated content may contain errors, omissions, or outdated information.</li>
+      <li>
+        You are responsible for reviewing and verifying all content before relying on it for
+        studying, exams, or any other critical purpose.
+      </li>
+      <li>
+        The Service is not a substitute for professional advice, education, or instruction.
+      </li>
+    </ul>
+
+    <hr>
+
+    <!-- 10. Disclaimers -->
+    <h5 class="mb-2">10. Disclaimers</h5>
+    <p class="small text-muted">
+      THE SERVICE IS PROVIDED ON AN “AS IS” AND “AS AVAILABLE” BASIS, WITHOUT WARRANTIES OF
+      ANY KIND, WHETHER EXPRESS OR IMPLIED. TO THE FULLEST EXTENT PERMITTED BY LAW, WE DISCLAIM
+      ALL WARRANTIES, INCLUDING BUT NOT LIMITED TO:
+    </p>
+    <ul class="small text-muted">
+      <li>IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT;</li>
+      <li>WARRANTIES THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR SECURE;</li>
+      <li>WARRANTIES AS TO THE ACCURACY OR RELIABILITY OF ANY CONTENT OR OUTPUT.</li>
+    </ul>
+    <p class="small text-muted">
+      Your use of the Service is at your own risk.
+    </p>
+
+    <hr>
+
+    <!-- 11. Limitation of Liability -->
+    <h5 class="mb-2">11. Limitation of liability</h5>
+    <p class="small text-muted">
+      TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL CARDIFYAI, ITS OWNERS,
+      DEVELOPERS, OR AFFILIATES BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL,
+      OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS, DATA, OR GOODWILL, ARISING OUT OF OR RELATED
+      TO YOUR USE OF (OR INABILITY TO USE) THE SERVICE, EVEN IF WE HAVE BEEN ADVISED OF THE
+      POSSIBILITY OF SUCH DAMAGES.
+    </p>
+    <p class="small text-muted">
+      TO THE EXTENT ANY LIABILITY CANNOT BE EXCLUDED, OUR AGGREGATE LIABILITY ARISING OUT OF OR
+      IN CONNECTION WITH THE SERVICE SHALL NOT EXCEED THE GREATER OF (A) THE AMOUNT YOU PAID US
+      IN SUBSCRIPTION FEES DURING THE THREE (3) MONTHS PRIOR TO THE EVENT GIVING RISE TO THE CLAIM,
+      OR (B) US $50.
+    </p>
+
+    <hr>
+
+    <!-- 12. Indemnification -->
+    <h5 class="mb-2">12. Indemnification</h5>
+    <p class="small text-muted">
+      You agree to indemnify and hold harmless CardifyAI, its owners, developers, and affiliates
+      from and against any claims, damages, losses, liabilities, and expenses (including
+      reasonable attorneys’ fees) arising out of or related to:
+    </p>
+    <ul class="small text-muted">
+      <li>Your use of the Service;</li>
+      <li>Your User Content (including notes, PDFs, and reviews);</li>
+      <li>Your violation of these Terms; or</li>
+      <li>Your violation of any rights of a third party.</li>
+    </ul>
+
+    <hr>
+
+    <!-- 13. Termination -->
+    <h5 class="mb-2">13. Suspension and termination</h5>
+    <p class="small text-muted">
+      We may suspend or terminate your access to the Service at any time, with or without notice,
+      if we believe you have violated these Terms, used the Service in a way that could cause
+      harm, or for any other reason we consider appropriate.
+    </p>
+    <p class="small text-muted">
+      Upon termination, your right to use the Service will immediately cease. Certain provisions
+      of these Terms, including ownership, disclaimers, limitations of liability, and indemnity,
+      will survive termination.
+    </p>
+
+    <hr>
+
+    <!-- 14. Third-Party Services -->
+    <h5 class="mb-2">14. Third-party services</h5>
+    <p class="small text-muted">
+      CardifyAI may integrate with or link to third-party services (for example, Stripe for
+      payments or Anki for flashcard importing). These services are governed by their own
+      terms and privacy policies, and we are not responsible for their content, policies,
+      or practices.
+    </p>
+
+    <hr>
+
+    <!-- 15. Changes to These Terms -->
+    <h5 class="mb-2">15. Changes to these Terms</h5>
+    <p class="small text-muted">
+      We may update these Terms from time to time. When we do, we will update the “Last updated”
+      date at the top of this page. If changes are significant, we may also provide additional
+      notice (such as a banner in the app or email, where appropriate).
+    </p>
+    <p class="small text-muted">
+      Your continued use of the Service after any changes become effective constitutes your
+      acceptance of the updated Terms.
+    </p>
+
+    <hr>
+
+    <!-- 16. Governing Law -->
+    <h5 class="mb-2">16. Governing law</h5>
+    <p class="small text-muted">
+      These Terms and any dispute arising out of or relating to them or the Service
+      shall be governed by and construed in accordance with the laws of the State of
+      Michigan, USA, without regard to its conflict of law principles.
+    </p>
+    <p class="small text-muted">
+      You agree to submit to the exclusive jurisdiction of the courts located in
+      Michigan, USA, for the resolution of any disputes arising from or relating to
+      these Terms or the Service.
+    </p>
+
+    <hr>
+
+    <!-- 17. Contact Information -->
+    <h5 class="mb-2">17. Contact information</h5>
+    <p class="small text-muted">
+      If you have any questions about these Terms, please contact us at:
+    </p>
+    <ul class="small text-muted">
+      <!-- TODO: replace this placeholder email with your real support email -->
+      <li>Email: <a href="mailto:support@cardifylabs.com">support@cardifylabs.com</a></li>
+    </ul>
+    <p class="small text-muted mb-0">
+      Please include enough detail about your question or concern so we can respond effectively.
+    </p>
+  </div>
+</div>
+
+{% endblock %}

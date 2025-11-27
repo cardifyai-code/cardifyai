@@ -19,28 +19,97 @@
           Continue with Google
         </a>
       {% else %}
-        <a href="{{ url_for('views.dashboard') }}" class="btn btn-primary mb-2">
+        <a href="{{ url_for('views.dashboard') }}" class="btn btn-primary mb-2 me-2">
           Go to Dashboard
+        </a>
+        <a href="{{ url_for('views.reviews') }}" class="btn btn-outline-secondary mb-2">
+          Leave a Review
         </a>
       {% endif %}
     </div>
 
-    <p class="text-muted">
-      CardifyAI uses your Google account only for authentication (email) to track your plan & usage.
+    <p class="text-muted mb-3">
+      CardifyAI uses your Google account only for authentication (email) to track your plan &amp; usage.
+    </p>
+
+    <p class="small text-muted mb-0">
+      By using CardifyAI, you agree to our
+      <a href="{{ url_for('views.terms') }}">Terms of Use</a>
+      and
+      <a href="{{ url_for('views.privacy') }}">Privacy Policy</a>.
     </p>
   </div>
 
   <div class="col-lg-5">
-    <div class="card">
+    <div class="card mb-3">
       <div class="card-body">
         <h5 class="card-title mb-3">How it works</h5>
         <ol class="mb-3">
           <li>Sign in with Google.</li>
           <li>Paste notes or upload a PDF on the dashboard.</li>
+          <li>Generate flashcards with one click.</li>
           <li>Download your flashcards as Anki (.apkg), CSV, or JSON.</li>
         </ol>
+        <p class="small text-muted mb-0">
+          Premium &amp; Professional users can also use the CardifyAI browser extension
+          to send highlighted text from the web straight into CardifyAI.
+        </p>
       </div>
     </div>
+  </div>
+</div>
+
+{# ================================
+   Featured Reviews on Home Page
+   ================================ #}
+<div class="row">
+  <div class="col-12">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h2 class="h4 mb-0">What students are saying</h2>
+      <a href="{{ url_for('views.reviews') }}" class="small text-decoration-none">
+        View all reviews &raquo;
+      </a>
+    </div>
+
+    {% if featured_reviews and featured_reviews|length > 0 %}
+      {% if featured_avg_score %}
+        <p class="small text-muted mb-2">
+          Average rating: <strong>{{ "%.1f"|format(featured_avg_score) }}/5</strong>
+        </p>
+      {% endif %}
+
+      <div class="row">
+        {% for r in featured_reviews %}
+          <div class="col-md-4 mb-3">
+            <div class="card h-100">
+              <div class="card-body d-flex flex-column">
+                <h5 class="card-title mb-1">{{ r.title }}</h5>
+                <p class="mb-1 small text-warning">
+                  {% for i in range(0, r.rating or 0) %}★{% endfor %}
+                  {% for i in range(r.rating or 0, 5) %}☆{% endfor %}
+                  <span class="text-muted ms-1 small">({{ r.rating }}/5)</span>
+                </p>
+                <p class="card-text small flex-grow-1">
+                  {{ r.short_body(220) }}
+                </p>
+                <p class="mt-2 mb-0 small text-muted">
+                  — {{ r.display_author() }}
+                </p>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-muted small">
+        No reviews yet. Be the first to share your experience!
+        {% if current_user.is_authenticated %}
+          <a href="{{ url_for('views.reviews') }}">Write a review</a>.
+        {% else %}
+          <a href="{{ url_for('auth.login') }}">Sign in</a> to leave a review.
+        {% endif %}
+      </p>
+    {% endif %}
   </div>
 </div>
 

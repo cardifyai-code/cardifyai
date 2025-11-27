@@ -1,0 +1,366 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="mb-1">About CardifyAI</h1>
+    <p class="text-muted mb-0">
+      Learn exactly how to use the dashboard, browser extension, and exports with simple, visual steps.
+    </p>
+  </div>
+</div>
+
+{# ===========================
+   Overview
+   =========================== #}
+<div class="row g-4 mb-4">
+  <div class="col-md-4">
+    <div class="card h-100 shadow-sm border-0">
+      <div class="card-body">
+        <h5 class="card-title">Web App Dashboard</h5>
+        <p class="card-text small text-muted mb-2">
+          Paste notes or upload PDFs, choose how many cards you want, and generate flashcards in seconds.
+        </p>
+        <ul class="small mb-0">
+          <li>Paste lecture notes or textbook sections</li>
+          <li>Upload PDF slides or handouts</li>
+          <li>Preview and export your deck</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card h-100 shadow-sm border-0">
+      <div class="card-body">
+        <h5 class="card-title">Browser Extension</h5>
+        <p class="card-text small text-muted mb-2">
+          Highlight any text on the web and send it straight into CardifyAI with one click.
+        </p>
+        <ul class="small mb-0">
+          <li>Works on articles, PDFs in the browser, and notes</li>
+          <li>Prompted for how many cards you want</li>
+          <li>Auto-opens CardifyAI with everything ready</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card h-100 shadow-sm border-0">
+      <div class="card-body">
+        <h5 class="card-title">Export to Flashcard Apps</h5>
+        <p class="card-text small text-muted mb-2">
+          Download your deck as Anki (.apkg), CSV, or JSON and import into your favorite flashcard app.
+        </p>
+        <ul class="small mb-0">
+          <li>One-click Anki export (.apkg)</li>
+          <li>CSV for custom tools or spreadsheets</li>
+          <li>JSON for advanced workflows</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="my-4">
+
+{# ===========================
+   1. How to use the dashboard
+   =========================== #}
+<section class="mb-5">
+  <h2 class="h4 mb-3">1. Using the CardifyAI Dashboard</h2>
+  <p class="text-muted mb-4">
+    The dashboard is the core of CardifyAI. You’ll use it to turn your raw study material into clean, exportable flashcards.
+  </p>
+
+  <div class="row g-4 align-items-center mb-4">
+    <div class="col-lg-6">
+      <h3 class="h6 text-uppercase text-muted mb-2">Step 1 · Open the Dashboard</h3>
+      <ol class="small mb-0">
+        <li>Go to the CardifyAI website and sign in with Google.</li>
+        <li>Click <strong>Dashboard</strong> in the top navigation bar.</li>
+        <li>You’ll see the <strong>Source Text</strong> box, PDF upload field, and card count input.</li>
+      </ol>
+    </div>
+    <div class="col-lg-6">
+      {# GIF placeholder: Opening the dashboard #}
+      <div class="ratio ratio-16x9 bg-light border rounded d-flex align-items-center justify-content-center text-muted">
+        <span class="small">
+          GIF Placeholder: “Opening Dashboard & Layout Overview”
+          <br>
+          (Replace this with an embedded GIF later)
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4 align-items-center mb-4">
+    <div class="col-lg-6 order-lg-2">
+      <h3 class="h6 text-uppercase text-muted mb-2">Step 2 · Add your study material</h3>
+      <ol class="small mb-0">
+        <li>
+          <strong>Option A – Paste text:</strong><br>
+          Copy your lecture notes, textbook paragraphs, or high-yield bullets and paste them into the
+          <strong>Source Text</strong> box.
+        </li>
+        <li class="mt-2">
+          <strong>Option B – Upload a PDF:</strong><br>
+          Click the <strong>Upload a PDF</strong> field and select your slides or handouts.
+          If you also pasted text, CardifyAI will combine both.
+        </li>
+        <li class="mt-2">
+          In the <strong>Number of Cards</strong> field, enter how many flashcards you’d like
+          (for example, 25, 50, or 100).
+        </li>
+      </ol>
+    </div>
+    <div class="col-lg-6 order-lg-1">
+      {# GIF placeholder: Pasting text / uploading PDF #}
+      <div class="ratio ratio-16x9 bg-light border rounded d-flex align-items-center justify-content-center text-muted">
+        <span class="small">
+          GIF Placeholder: “Pasting Text & Uploading a PDF”
+          <br>
+          (Replace this with an embedded GIF later)
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4 align-items-center">
+    <div class="col-lg-6">
+      <h3 class="h6 text-uppercase text-muted mb-2">Step 3 · Generate and preview your deck</h3>
+      <ol class="small mb-0">
+        <li>Click the <strong>Generate Flashcards</strong> button.</li>
+        <li>A short loading message will appear while CardifyAI processes your content.</li>
+        <li>
+          After generation, scroll down to the <strong>Preview</strong> section to review each
+          front (question) and back (answer).
+        </li>
+        <li>
+          If you like the deck, you’re ready to export. If not, tweak your input or card count
+          and generate again.
+        </li>
+      </ol>
+    </div>
+    <div class="col-lg-6">
+      {# GIF placeholder: Generating & previewing cards #}
+      <div class="ratio ratio-16x9 bg-light border rounded d-flex align-items-center justify-content-center text-muted">
+        <span class="small">
+          GIF Placeholder: “Generate Flashcards & Scroll Through Preview”
+          <br>
+          (Replace this with an embedded GIF later)
+        </span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="my-4">
+
+{# ===========================
+   2. How to use the browser extension
+   =========================== #}
+<section class="mb-5">
+  <h2 class="h4 mb-3">2. Using the CardifyAI Browser Extension</h2>
+  <p class="text-muted mb-4">
+    The extension lets you highlight text anywhere on the web and instantly send it into CardifyAI
+    without leaving the page.
+  </p>
+
+  <div class="alert alert-info small mb-4">
+    <strong>Note:</strong> The extension is available for Premium and Professional plans.
+    Once you’re on one of these plans, you’ll see direct links to the Chrome, Edge, and Firefox
+    extensions inside your Dashboard.
+  </div>
+
+  <div class="row g-4 align-items-center mb-4">
+    <div class="col-lg-6">
+      <h3 class="h6 text-uppercase text-muted mb-2">Step 1 · Install the extension</h3>
+      <ol class="small mb-0">
+        <li>Open the <strong>Dashboard</strong> while signed in.</li>
+        <li>In the “Browser Extensions” section, click the store link for your browser (Chrome, Edge, or Firefox).</li>
+        <li>On the store page, click <strong>Add to browser</strong> (or the equivalent button) to install.</li>
+        <li>Pin the extension icon so it’s easy to access while you study.</li>
+      </ol>
+    </div>
+    <div class="col-lg-6">
+      {# GIF placeholder: Installing & pinning the extension #}
+      <div class="ratio ratio-16x9 bg-light border rounded d-flex align-items-center justify-content-center text-muted">
+        <span class="small">
+          GIF Placeholder: “Install & Pin CardifyAI Extension”
+          <br>
+          (Replace this with an embedded GIF later)
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4 align-items-center mb-4">
+    <div class="col-lg-6 order-lg-2">
+      <h3 class="h6 text-uppercase text-muted mb-2">Step 2 · Highlight and generate cards</h3>
+      <ol class="small mb-0">
+        <li>Navigate to any article, PDF in your browser, or online notes.</li>
+        <li>Use your mouse to <strong>highlight</strong> the text you want to study.</li>
+        <li>Click the CardifyAI extension icon (or use the right-click context menu option).</li>
+        <li>
+          When prompted, choose how many flashcards you want to generate (for example, 20) and confirm.
+        </li>
+      </ol>
+    </div>
+    <div class="col-lg-6 order-lg-1">
+      {# GIF placeholder: Highlighting text & clicking extension #}
+      <div class="ratio ratio-16x9 bg-light border rounded d-flex align-items-center justify-content-center text-muted">
+        <span class="small">
+          GIF Placeholder: “Highlight Text & Trigger Extension”
+          <br>
+          (Replace this with an embedded GIF later)
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4 align-items-center">
+    <div class="col-lg-6">
+      <h3 class="h6 text-uppercase text-muted mb-2">Step 3 · Review your deck in CardifyAI</h3>
+      <ol class="small mb-0">
+        <li>
+          After you confirm the card count, the extension opens your CardifyAI
+          <strong>Dashboard</strong> with the text and card count already filled in.
+        </li>
+        <li>CardifyAI generates the flashcards automatically using the same daily limits as the web app.</li>
+        <li>Scroll down to preview the questions and answers, then export just like any other deck.</li>
+      </ol>
+    </div>
+    <div class="col-lg-6">
+      {# GIF placeholder: Auto-filling dashboard from extension #}
+      <div class="ratio ratio-16x9 bg-light border rounded d-flex align-items-center justify-content-center text-muted">
+        <span class="small">
+          GIF Placeholder: “Dashboard Auto-Filled from Extension & Cards Generated”
+          <br>
+          (Replace this with an embedded GIF later)
+        </span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="my-4">
+
+{# ===========================
+   3. How to export & import into flashcard apps
+   =========================== #}
+<section class="mb-5">
+  <h2 class="h4 mb-3">3. Exporting & Importing into Your Flashcard App</h2>
+  <p class="text-muted mb-4">
+    Once you like your deck, you can export it and bring it into Anki or any other flashcard app
+    that supports CSV or JSON.
+  </p>
+
+  <div class="row g-4 align-items-center mb-4">
+    <div class="col-lg-6">
+      <h3 class="h6 text-uppercase text-muted mb-2">Step 1 · Export from CardifyAI</h3>
+      <ol class="small mb-0">
+        <li>On the Dashboard, scroll to the <strong>Preview</strong> and <strong>Download Deck</strong> section.</li>
+        <li>
+          Choose your preferred format:
+          <ul class="mb-0">
+            <li><strong>Anki (.apkg)</strong> – best for direct Anki use.</li>
+            <li><strong>CSV</strong> – for other flashcard apps or spreadsheets.</li>
+            <li><strong>JSON</strong> – for custom tooling or advanced workflows.</li>
+          </ul>
+        </li>
+        <li>Click the download button and save the file to a folder you can easily find.</li>
+      </ol>
+    </div>
+    <div class="col-lg-6">
+      {# GIF placeholder: Downloading deck from CardifyAI #}
+      <div class="ratio ratio-16x9 bg-light border rounded d-flex align-items-center justify-content-center text-muted">
+        <span class="small">
+          GIF Placeholder: “Download Anki / CSV / JSON from Dashboard”
+          <br>
+          (Replace this with an embedded GIF later)
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4 align-items-center mb-4">
+    <div class="col-lg-6 order-lg-2">
+      <h3 class="h6 text-uppercase text-muted mb-2">Step 2 · Import into Anki (.apkg)</h3>
+      <ol class="small mb-0">
+        <li>Open the Anki desktop app.</li>
+        <li>Go to <strong>File → Import</strong>.</li>
+        <li>Select the <strong>.apkg</strong> file you downloaded from CardifyAI.</li>
+        <li>Choose or create the deck you want to import into, then confirm.</li>
+        <li>Your cards will appear inside Anki, ready for review and scheduling.</li>
+      </ol>
+    </div>
+    <div class="col-lg-6 order-lg-1">
+      {# GIF placeholder: Importing .apkg into Anki #}
+      <div class="ratio ratio-16x9 bg-light border rounded d-flex align-items-center justify-content-center text-muted">
+        <span class="small">
+          GIF Placeholder: “Import CardifyAI .apkg into Anki”
+          <br>
+          (Replace this with an embedded GIF later)
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4 align-items-center">
+    <div class="col-lg-6">
+      <h3 class="h6 text-uppercase text-muted mb-2">Step 3 · Import into other apps (CSV / JSON)</h3>
+      <ol class="small mb-0">
+        <li>
+          For apps that support <strong>CSV</strong>, look for an <strong>Import</strong> or
+          <strong>Upload</strong> option and select the CSV you exported from CardifyAI.
+        </li>
+        <li>
+          Make sure the app maps columns correctly: typically
+          <strong>front</strong> → Question,
+          <strong>back</strong> → Answer.
+        </li>
+        <li>
+          If you’re using a custom tool or script, you can consume the <strong>JSON</strong> export
+          to integrate CardifyAI cards into your own study workflows.
+        </li>
+      </ol>
+    </div>
+    <div class="col-lg-6">
+      {# GIF placeholder: Importing via CSV into another app #}
+      <div class="ratio ratio-16x9 bg-light border rounded d-flex align-items-center justify-content-center text-muted">
+        <span class="small">
+          GIF Placeholder: “Import CSV into Another Flashcard App”
+          <br>
+          (Replace this with an embedded GIF later)
+        </span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="my-4">
+
+{# ===========================
+   Social / future links
+   =========================== #}
+<section class="mb-4">
+  <h2 class="h5 mb-2">Follow CardifyAI</h2>
+  <p class="small text-muted mb-3">
+    Social links and more in-depth video tutorials will be added here as the platform grows.
+  </p>
+  <div class="d-flex flex-wrap gap-2">
+    <a href="#" class="btn btn-outline-secondary btn-sm disabled" tabindex="-1" aria-disabled="true">
+      Twitter / X (coming soon)
+    </a>
+    <a href="#" class="btn btn-outline-secondary btn-sm disabled" tabindex="-1" aria-disabled="true">
+      YouTube tutorials (coming soon)
+    </a>
+    <a href="#" class="btn btn-outline-secondary btn-sm disabled" tabindex="-1" aria-disabled="true">
+      TikTok / Reels (coming soon)
+    </a>
+  </div>
+</section>
+
+{% endblock %}

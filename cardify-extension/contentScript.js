@@ -27,27 +27,44 @@ function logEvent(level, message, details = {}) {
  * Optional: small banner in dev tools so you can see the script is active.
  */
 function announceLoaded() {
-  logEvent("info", "contentScript loaded on CardifyLabs dashboard", {
+  logEvent("info", "contentScript loaded on CardifyLabs page", {
     url: window.location.href,
   });
 }
 
 /**
- * Reserved hook: if in the future you want the site itself to react
- * to extension presence (e.g., show a “Connected via Extension” badge),
- * you can toggle DOM here.
+ * Reserved hook: mark that the extension is present on the Cardify site.
+ * Your Flask templates or client-side JS can look for:
+ *   document.body.dataset.cardifyaiExtension === "true"
+ * to show a “Connected via Extension” badge or tweak UI.
  */
 function markExtensionPresence() {
   try {
     const body = document.body;
-    if (!body) return;
+    if (!body) {
+      logEvent("warn", "document.body not ready when marking extension presence");
+      return;
+    }
 
-    // Add a data-attribute that your Jinja/JS can look for if needed.
     body.dataset.cardifyaiExtension = "true";
+    logEvent("info", "Marked extension presence on body dataset");
   } catch (e) {
     logEvent("warn", "Failed to mark extension presence", { error: String(e) });
   }
 }
+
+/**
+ * (Optional) Future hook:
+ * If you ever want the site to react to specific messages from the background
+ * script, you can handle them here.
+ *
+ * For now we keep this NO-OP so it doesn't interfere with the background.js
+ * flow, which injects directly and does not depend on this content script.
+ */
+// chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+//   logEvent("info", "Received message in contentScript", { message });
+//   // No-op for now
+// });
 
 document.addEventListener("DOMContentLoaded", () => {
   announceLoaded();
@@ -57,6 +74,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // We intentionally do NOT:
   //  - listen for CARDIFY_START
   //  - send CARDIFY_GENERATE
-  // Those flows are now handled entirely inside background.js via
-  // chrome.scripting + direct fetch() to /api/extension/generate.
+  // or auto-fill the dashboard form.
+  //
+  // Those flows are handled entirely in background.js via:
+  //   - chrome.scripting.executeScript()
+  //   - direct interaction with /dashboard DOM
 });

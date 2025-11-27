@@ -56,7 +56,7 @@ async function showLoadingOverlay(tabId, message) {
           overlay.style.alignItems = "center";
           overlay.style.gap = "8px";
 
-          // simple spinner
+          // Simple spinner
           const spinner = document.createElement("div");
           spinner.className = "cardifyai-spinner";
           spinner.style.width = "16px";
@@ -73,7 +73,7 @@ async function showLoadingOverlay(tabId, message) {
           overlay.appendChild(text);
           document.body.appendChild(overlay);
 
-          // keyframes
+          // Keyframes
           const styleEl = document.createElement("style");
           styleEl.textContent = `
             @keyframes cardifyai-spin {
@@ -232,7 +232,11 @@ async function collectFromPage(tabId, selectionOverride) {
     return null;
   }
 
-  console.log("[CardifyAI/bg] Collected text length + num_cards:", selectedText.length, numCards);
+  console.log(
+    "[CardifyAI/bg] Collected text length + num_cards:",
+    selectedText.length,
+    numCards
+  );
   return { text: selectedText, num_cards: numCards };
 }
 

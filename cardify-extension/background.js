@@ -4,7 +4,7 @@
 const CARDIFY_BASE = "https://cardifylabs.com";
 
 /**
- * Focus Cardify tab if one exists, otherwise open a new one.
+ * Focus Cardify /dashboard tab if one exists, otherwise open a new one.
  * Returns the tab object.
  */
 async function openOrFocusTab(pathOrUrl = "/dashboard") {
@@ -12,6 +12,7 @@ async function openOrFocusTab(pathOrUrl = "/dashboard") {
     ? pathOrUrl
     : `${CARDIFY_BASE}${pathOrUrl.startsWith("/") ? pathOrUrl : "/" + pathOrUrl}`;
 
+  // Prefer an existing /dashboard tab
   const existingTabs = await chrome.tabs.query({ url: CARDIFY_BASE + "/*" });
 
   if (existingTabs.length > 0) {
@@ -147,7 +148,29 @@ async function collectFromPage(tabId, selectionOverride) {
     try {
       const [{ result }] = await chrome.scripting.executeScript({
         target: { tabId },
-        func: () => window.getSelection().toString()
+        func: () => {
+          // Get selection from window
+          let s = window.getSelection ? window.getSelection().toString() : "";
+
+          // Fallback to active input/textarea
+          if ((!s || !s.trim()) && document.activeElement) {
+            const el = document.activeElement;
+            const tag = el.tagName && el.tagName.toLowerCase();
+            const type = (el.type || "").toLowerCase();
+
+            if (
+              tag === "textarea" ||
+              (tag === "input" &&
+                ["text", "search", "url", "email", "tel"].includes(type))
+            ) {
+              const start = el.selectionStart || 0;
+              const end = el.selectionEnd || 0;
+              s = (el.value || "").substring(start, end);
+            }
+          }
+
+          return (s || "").trim();
+        }
       });
 
       selectedText = (result || "").trim();
@@ -201,25 +224,68 @@ async function collectFromPage(tabId, selectionOverride) {
 }
 
 /**
- * Helper: send the "fill and submit" message into the Cardify dashboard tab.
+ * Inject code into the Cardify dashboard tab that:
+ *  - waits for #input_text, #card_count, #generatorForm
+ *  - fills them with our text + num_cards
+ *  - submits the form
  */
-function sendFillMessage(dashboardTabId, payload, sourceTabId) {
-  chrome.tabs.sendMessage(
-    dashboardTabId,
-    {
-      type: "CARDIFY_FILL_AND_SUBMIT",
-      payload
-    },
-    () => {
-      if (chrome.runtime.lastError) {
-        console.warn("[CardifyAI] Error sending CARDIFY_FILL_AND_SUBMIT:", chrome.runtime.lastError);
-      }
-      // Remove overlay on the original page once we've handed off to the dashboard
-      if (sourceTabId) {
-        removeLoadingOverlay(sourceTabId);
-      }
-    }
-  );
+async function fillDashboardForm(dashboardTabId, payload) {
+  const { text, num_cards } = payload;
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: dashboardTabId },
+      func: (selectedText, count) => {
+        function waitForElement(selector, timeout = 10000) {
+          return new Promise((resolve, reject) => {
+            const start = Date.now();
+            const timer = setInterval(() => {
+              const el = document.querySelector(selector);
+              if (el) {
+                clearInterval(timer);
+                resolve(el);
+              }
+              if (Date.now() - start > timeout) {
+                clearInterval(timer);
+                reject(new Error("Element not found: " + selector));
+              }
+            }, 150);
+          });
+        }
+
+        (async () => {
+          try {
+            const textarea = await waitForElement("#input_text");
+            const countInput = await waitForElement("#card_count");
+            const form = await waitForElement("#generatorForm");
+
+            textarea.value = selectedText;
+            countInput.value = String(count);
+
+            // Hook into the dashboard's own loading UI if present
+            const loadingDiv = document.getElementById("loadingContainer");
+            const mainDiv = document.getElementById("mainFormContainer");
+            if (loadingDiv && mainDiv) {
+              loadingDiv.classList.remove("d-none");
+              mainDiv.classList.add("d-none");
+            }
+
+            form.submit();
+          } catch (e) {
+            console.error("[CardifyAI] Error auto-filling dashboard:", e);
+            alert(
+              "CardifyAI: Unable to auto-fill the dashboard. " +
+              "Please paste your text manually.\n\n" +
+              String(e)
+            );
+          }
+        })();
+      },
+      args: [text, num_cards]
+    });
+  } catch (err) {
+    console.error("[CardifyAI] Error injecting fillDashboardForm:", err);
+  }
 }
 
 /**
@@ -231,8 +297,8 @@ function sendFillMessage(dashboardTabId, payload, sourceTabId) {
  *  1) Collect text + num_cards from the page
  *  2) Show a small loading overlay on the source page
  *  3) Open/focus /dashboard
- *  4) When /dashboard finishes loading, send CARDIFY_FILL_AND_SUBMIT
- *     to the content script, which fills the form and submits it.
+ *  4) When /dashboard finishes loading, inject JS that fills the form
+ *     and submits it (no contentScript message needed).
  */
 async function startCardifyFlow(tab, selectionOverride) {
   if (!tab || !tab.id) return;
@@ -254,25 +320,26 @@ async function startCardifyFlow(tab, selectionOverride) {
 
   // Open or focus the dashboard
   const dashboardTab = await openOrFocusTab("/dashboard");
+  const sourceTabId = tab.id;
 
-  // If the dashboard is already fully loaded, send the message right away
+  // If the dashboard is already fully loaded, inject immediately
   if (dashboardTab.status === "complete") {
-    await updateLoadingOverlay(tab.id, "CardifyAI: Filling your Cardify deck…");
-    sendFillMessage(dashboardTab.id, collected, tab.id);
+    await updateLoadingOverlay(sourceTabId, "CardifyAI: Filling your Cardify deck…");
+    await fillDashboardForm(dashboardTab.id, collected);
+    await removeLoadingOverlay(sourceTabId);
     return;
   }
 
   // Otherwise, wait for the dashboard tab to finish loading
-  const originalTabId = tab.id;
-
   const onUpdated = async (updatedTabId, info, updatedTab) => {
     if (updatedTabId !== dashboardTab.id || info.status !== "complete") return;
     if (!updatedTab.url || !updatedTab.url.startsWith(`${CARDIFY_BASE}/dashboard`)) return;
 
     chrome.tabs.onUpdated.removeListener(onUpdated);
 
-    await updateLoadingOverlay(originalTabId, "CardifyAI: Filling your Cardify deck…");
-    sendFillMessage(updatedTabId, collected, originalTabId);
+    await updateLoadingOverlay(sourceTabId, "CardifyAI: Filling your Cardify deck…");
+    await fillDashboardForm(updatedTabId, collected);
+    await removeLoadingOverlay(sourceTabId);
   };
 
   chrome.tabs.onUpdated.addListener(onUpdated);
@@ -284,7 +351,7 @@ async function startCardifyFlow(tab, selectionOverride) {
  *  1. Get selected text (from page)
  *  2. Ask user for # of cards (via in-page prompt)
  *  3. Open /dashboard
- *  4. Auto-fill and submit the form there via CARDIFY_FILL_AND_SUBMIT
+ *  4. Auto-fill and submit the form there
  */
 chrome.action.onClicked.addListener(async (tab) => {
   startCardifyFlow(tab, null);

@@ -1,7 +1,7 @@
 # app/extension_api.py
 
 from flask import Blueprint, request, jsonify, url_for, current_app, session
-from flask_login import login_required, current_user
+from flask_login import current_user
 
 from . import db
 from .models import Flashcard
@@ -15,13 +15,12 @@ PAID_PLANS = {"premium", "professional"}
 
 
 @extension_api.post("/generate")
-@login_required
 def extension_generate():
     """
     Endpoint used by the browser extension.
 
     Flow:
-    - Require login (Flask-Login)
+    - Require login (Flask-Login-style check, but return JSON instead of HTML redirect)
     - Require paid plan (premium/professional) unless admin
     - Accept JSON: { "text": str, "num_cards": int }
     - Generate flashcards via OpenAI
@@ -29,6 +28,18 @@ def extension_generate():
     - Store them in session["cards"] so /dashboard can display/export
     - Return a redirect URL for the extension to open
     """
+
+    # ---------------------------
+    # AUTH CHECK (JSON 401, not HTML redirect)
+    # ---------------------------
+    if not current_user.is_authenticated:
+        login_url = url_for("auth.login", _external=True)
+        return jsonify({
+            "ok": False,
+            "error": "Not logged in",
+            "reason": "not_logged_in",
+            "redirect_url": login_url,
+        }), 401
 
     # ---------------------------
     # SUBSCRIPTION CHECK

@@ -146,6 +146,10 @@ def dashboard():
 
     cards = session.get("cards", [])
 
+    # Flags that can be set by extension_api to show “extension generated X cards”
+    from_extension = session.pop("from_extension", False)
+    cards_created = session.pop("cards_created", None)
+
     if request.method == "POST":
         # ------------ Input text ---------------
         raw_text = request.form.get("text_content", "").strip()
@@ -175,6 +179,8 @@ def dashboard():
                     used=used,
                     remaining=remaining,
                     is_admin=current_user.is_admin,
+                    from_extension=from_extension,
+                    cards_created=cards_created,
                 )
 
         # Combine text + PDF
@@ -196,6 +202,8 @@ def dashboard():
                 used=used,
                 remaining=remaining,
                 is_admin=current_user.is_admin,
+                from_extension=from_extension,
+                cards_created=cards_created,
             )
 
         # ------------ Requested cards ---------------
@@ -228,6 +236,8 @@ def dashboard():
                 used=current_user.daily_cards_generated or 0,
                 remaining=0,
                 is_admin=current_user.is_admin,
+                from_extension=from_extension,
+                cards_created=cards_created,
             )
 
         num_cards = min(requested_num, remaining)
@@ -258,6 +268,8 @@ def dashboard():
                     used=used,
                     remaining=remaining,
                     is_admin=current_user.is_admin,
+                    from_extension=from_extension,
+                    cards_created=cards_created,
                 )
 
             used = len(new_cards)
@@ -330,6 +342,8 @@ def dashboard():
         remaining=remaining,
         is_admin=current_user.is_admin,
         stripe_public_key=Config.STRIPE_PUBLIC_KEY,
+        from_extension=from_extension,
+        cards_created=cards_created,
     )
 
 

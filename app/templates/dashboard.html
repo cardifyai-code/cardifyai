@@ -11,10 +11,25 @@
   {% endif %}
 </p>
 
-<p class="mb-3 text-muted">
+<p class="mb-2 text-muted">
   Daily flashcard limits:
   <strong>Free: 10/day | Basic: 200/day | Premium: 1,000/day | Professional: 5,000/day</strong>
 </p>
+
+<p class="mb-3 text-muted">
+  Today you’ve generated
+  <strong>{{ used or 0 }}</strong> of
+  <strong>{{ daily_limit or 0 }}</strong> cards
+  ({{ remaining or 0 }} remaining).
+</p>
+
+{% if from_extension and cards_created is not none %}
+  <div class="alert alert-success alert-dismissible fade show" role="alert">
+    CardifyAI extension created <strong>{{ cards_created }}</strong> flashcards
+    from your highlighted text.
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+  </div>
+{% endif %}
 
 <div id="loadingContainer" class="alert alert-info d-none">
   <strong>Generating flashcards...</strong><br>
@@ -140,7 +155,7 @@
   </a>
 {% endif %}
 
-<!-- ========== BACKGROUND JOB JS ========== -->
+<!-- ========== BACKGROUND JOB JS (kept for compatibility) ========== -->
 
 {% if job_id %}
 <script>

@@ -140,15 +140,21 @@ def dashboard():
     - Calls AI generator directly (no Celery/Redis)
     - Enforces daily limits (NO MONTHLY LIMIT)
     - Stores cards in session for export/download
+    - Can also be entered after extension_api generates cards
+      (prefills from session["ext_text"] / session["ext_num_cards"])
     """
     log_visit("/dashboard")
     ensure_daily_reset(current_user)
 
     cards = session.get("cards", [])
 
-    # Flags that can be set by extension_api to show “extension generated X cards”
+    # Flags for extension-originated generation (optional)
     from_extension = session.pop("from_extension", False)
     cards_created = session.pop("cards_created", None)
+
+    # Original text / card count from the extension (if present)
+    ext_text = session.pop("ext_text", None)
+    ext_num_cards = session.pop("ext_num_cards", None)
 
     if request.method == "POST":
         # ------------ Input text ---------------
@@ -181,6 +187,8 @@ def dashboard():
                     is_admin=current_user.is_admin,
                     from_extension=from_extension,
                     cards_created=cards_created,
+                    ext_text=ext_text,
+                    ext_num_cards=ext_num_cards,
                 )
 
         # Combine text + PDF
@@ -204,6 +212,8 @@ def dashboard():
                 is_admin=current_user.is_admin,
                 from_extension=from_extension,
                 cards_created=cards_created,
+                ext_text=ext_text,
+                ext_num_cards=ext_num_cards,
             )
 
         # ------------ Requested cards ---------------
@@ -238,6 +248,8 @@ def dashboard():
                 is_admin=current_user.is_admin,
                 from_extension=from_extension,
                 cards_created=cards_created,
+                ext_text=ext_text,
+                ext_num_cards=ext_num_cards,
             )
 
         num_cards = min(requested_num, remaining)
@@ -270,6 +282,8 @@ def dashboard():
                     is_admin=current_user.is_admin,
                     from_extension=from_extension,
                     cards_created=cards_created,
+                    ext_text=ext_text,
+                    ext_num_cards=ext_num_cards,
                 )
 
             used = len(new_cards)
@@ -344,6 +358,8 @@ def dashboard():
         stripe_public_key=Config.STRIPE_PUBLIC_KEY,
         from_extension=from_extension,
         cards_created=cards_created,
+        ext_text=ext_text,
+        ext_num_cards=ext_num_cards,
     )
 
 

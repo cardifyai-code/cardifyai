@@ -50,7 +50,7 @@
           name="text_content"
           rows="6"
           placeholder="Paste your lecture notes, textbook content, or key concepts here..."
-        >{{ request.form.text_content or "" }}</textarea>
+        >{{ ext_text or request.form.text_content or "" }}</textarea>
       </div>
 
       <!-- PDF Upload -->
@@ -77,7 +77,7 @@
             class="form-control"
             id="card_count"
             name="num_cards"
-            value="{{ request.form.num_cards or 10 }}"
+            value="{{ ext_num_cards or request.form.num_cards or 10 }}"
             min="1"
             max="2000"
           >

@@ -20,12 +20,13 @@ def extension_generate():
     Endpoint used by the browser extension.
 
     Flow:
-    - Require login (Flask-Login-style check, but return JSON instead of HTML redirect)
+    - Check login (JSON 401 instead of HTML redirect)
     - Require paid plan (premium/professional) unless admin
     - Accept JSON: { "text": str, "num_cards": int }
     - Generate flashcards via OpenAI
     - Save them to the Flashcard table
     - Store them in session["cards"] so /dashboard can display/export
+    - ALSO store original text + num_cards in session so the dashboard form can pre-fill
     - Return a redirect URL for the extension to open
     """
 
@@ -136,14 +137,18 @@ def extension_generate():
         current_app.logger.exception("Error saving extension flashcards to DB")
 
     # ---------------------------
-    # STORE IN SESSION FOR EXPORT UI
+    # STORE IN SESSION FOR EXPORT UI + PREFILL
     # ---------------------------
     try:
         # So /dashboard can immediately show/export them
         session["cards"] = cards
+
+        # So /dashboard can pre-fill the form with the original input
+        session["ext_text"] = text
+        session["ext_num_cards"] = num_cards
     except Exception:
         # Session failure shouldn't kill the API
-        current_app.logger.exception("Error storing cards in session")
+        current_app.logger.exception("Error storing extension data in session")
 
     # ---------------------------
     # BUILD REDIRECT URL

@@ -10,7 +10,7 @@ from .ai import generate_flashcards_from_text
 # We do NOT set url_prefix here, it's added in app/__init__.py
 extension_api = Blueprint("extension_api", __name__)
 
-# Only paid plans can use the Chrome extension
+# Only paid plans can use the Chrome/Edge extension
 PAID_PLANS = {"premium", "professional"}
 
 
@@ -18,11 +18,11 @@ PAID_PLANS = {"premium", "professional"}
 @login_required
 def extension_generate():
     """
-    Endpoint used by the Chrome extension.
+    Endpoint used by the browser extension.
 
     Flow:
     - Require login (Flask-Login)
-    - Require paid plan (premium/professional)
+    - Require paid plan (premium/professional) unless admin
     - Accept JSON: { "text": str, "num_cards": int }
     - Generate flashcards via OpenAI
     - Save them to the Flashcard table
@@ -61,7 +61,7 @@ def extension_generate():
             "reason": "no_text",
         }), 400
 
-    # Clamp num_cards to something reasonable
+    # Clamp num_cards to something reasonable (extension already enforces 1–200)
     if num_cards < 1:
         num_cards = 1
     if num_cards > 200:

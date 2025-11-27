@@ -4,45 +4,119 @@
 const CARDIFY_BASE = "https://cardifylabs.com";
 
 /**
- * Focus Cardify tab if one exists, otherwise open a new one.
- * Returns the tab object.
+ * Small helper to build a full URL from a path or url.
  */
-async function openOrFocusTab(pathOrUrl = "/dashboard") {
-  const url = pathOrUrl.startsWith("http")
-    ? pathOrUrl
-    : `${CARDIFY_BASE}${pathOrUrl.startsWith("/") ? pathOrUrl : "/" + pathOrUrl}`;
-
-  const existingTabs = await chrome.tabs.query({ url: CARDIFY_BASE + "/*" });
-
-  if (existingTabs.length > 0) {
-    const tab = existingTabs[0];
-    await chrome.tabs.update(tab.id, { active: true, url });
-    await chrome.windows.update(tab.windowId, { focused: true });
-    return tab;
+function toAbsoluteUrl(pathOrUrl) {
+  if (!pathOrUrl) {
+    return `${CARDIFY_BASE}/dashboard`;
   }
-
-  return await chrome.tabs.create({ url });
+  if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
+    return pathOrUrl;
+  }
+  if (!pathOrUrl.startsWith("/")) {
+    return `${CARDIFY_BASE}/${pathOrUrl}`;
+  }
+  return `${CARDIFY_BASE}${pathOrUrl}`;
 }
 
 /**
- * Utility: show an alert + console log inside the given tab.
+ * Show a full-page loading overlay in the current tab.
+ * This runs IN THE PAGE via chrome.scripting.
  */
-async function showAlertInPage(tabId, message) {
+async function showLoadingOverlay(tabId, message) {
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
       func: (msg) => {
-        try {
-          console.log("[CardifyAI]", msg);
-          alert(msg);
-        } catch (e) {
-          console.error("[CardifyAI] Failed to show alert:", e);
+        // If it already exists, just update text
+        let overlay = document.getElementById("cardifyai-ext-overlay");
+        if (!overlay) {
+          overlay = document.createElement("div");
+          overlay.id = "cardifyai-ext-overlay";
+          overlay.style.position = "fixed";
+          overlay.style.inset = "0";
+          overlay.style.backgroundColor = "rgba(0,0,0,0.45)";
+          overlay.style.zIndex = "2147483647";
+          overlay.style.display = "flex";
+          overlay.style.flexDirection = "column";
+          overlay.style.alignItems = "center";
+          overlay.style.justifyContent = "center";
+          overlay.style.backdropFilter = "blur(2px)";
+          overlay.style.color = "#fff";
+          overlay.style.fontFamily =
+            "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+
+          const box = document.createElement("div");
+          box.style.backgroundColor = "rgba(0,0,0,0.8)";
+          box.style.borderRadius = "12px";
+          box.style.padding = "16px 24px";
+          box.style.display = "flex";
+          box.style.flexDirection = "column";
+          box.style.alignItems = "center";
+          box.style.gap = "10px";
+          box.style.minWidth = "220px";
+          box.id = "cardifyai-ext-overlay-box";
+
+          const spinner = document.createElement("div");
+          spinner.style.width = "32px";
+          spinner.style.height = "32px";
+          spinner.style.borderRadius = "50%";
+          spinner.style.border = "4px solid rgba(255,255,255,0.3)";
+          spinner.style.borderTopColor = "#ffffff";
+          spinner.style.animation = "cardifyai-spin 0.9s linear infinite";
+
+          const text = document.createElement("div");
+          text.id = "cardifyai-ext-overlay-text";
+          text.style.fontSize = "14px";
+          text.style.textAlign = "center";
+
+          text.textContent = msg || "Sending selection to CardifyAI...";
+
+          box.appendChild(spinner);
+          box.appendChild(text);
+          overlay.appendChild(box);
+          document.body.appendChild(overlay);
+
+          // Inject spinner keyframes
+          const style = document.createElement("style");
+          style.textContent = `
+            @keyframes cardifyai-spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `;
+          document.head.appendChild(style);
+        } else {
+          const text = document.getElementById("cardifyai-ext-overlay-text");
+          if (text) {
+            text.textContent = msg || "Sending selection to CardifyAI...";
+          }
         }
       },
-      args: [message]
+      args: [message || "Sending selection to CardifyAI..."]
     });
   } catch (err) {
-    console.warn("[CardifyAI] Unable to inject alert into page:", err);
+    console.warn("[CardifyAI] Could not show loading overlay:", err);
+  }
+}
+
+/**
+ * Remove the loading overlay if present.
+ */
+async function hideLoadingOverlay(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const overlay = document.getElementById("cardifyai-ext-overlay");
+        if (overlay && overlay.parentNode) {
+          overlay.parentNode.removeChild(overlay);
+        }
+      }
+    });
+  } catch (err) {
+    // It’s fine if this fails (e.g., tab navigated away)
+    console.warn("[CardifyAI] Could not hide loading overlay:", err);
   }
 }
 
@@ -72,10 +146,14 @@ async function collectFromPage(tabId, selectionOverride) {
   }
 
   if (!selectedText) {
-    await showAlertInPage(
-      tabId,
-      "CardifyAI: Please highlight some text first."
-    );
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => alert("CardifyAI: Please highlight some text first.")
+      });
+    } catch (err) {
+      console.warn("[CardifyAI] Unable to show alert:", err);
+    }
     return null;
   }
 
@@ -115,24 +193,16 @@ async function collectFromPage(tabId, selectionOverride) {
 }
 
 /**
- * Call backend to generate cards via POST JSON.
- * Returns an object describing the result:
- *  - { ok: true, redirectUrl, tabId }
- *  - { ok: false, reason, status? }
+ * Call backend /api/extension/generate with POST.
+ * This keeps the text in the BODY, so large inputs are safe.
  */
-async function handleGenerateRequest(payload) {
+async function callExtensionAPI(tabId, text, numCards) {
+  await showLoadingOverlay(
+    tabId,
+    "CardifyAI: Sending your selection to generate flashcards..."
+  );
+
   try {
-    const { text, num_cards } = payload || {};
-
-    if (!text || !text.trim()) {
-      return { ok: false, reason: "no_text" };
-    }
-
-    console.log("[CardifyAI] Sending request to backend...", {
-      length: text.length,
-      num_cards
-    });
-
     const apiUrl = `${CARDIFY_BASE}/api/extension/generate`;
 
     const resp = await fetch(apiUrl, {
@@ -140,76 +210,102 @@ async function handleGenerateRequest(payload) {
       headers: {
         "Content-Type": "application/json"
       },
-      credentials: "include", // send cookies for Flask session / Google login
-      body: JSON.stringify({ text, num_cards })
+      credentials: "include", // send cookies for session / login
+      body: JSON.stringify({
+        text,
+        num_cards: numCards
+      })
     });
 
-    // 401: Not logged in
+    // Not logged in
     if (resp.status === 401) {
-      console.warn("[CardifyAI] Not logged in (401). Redirecting to login.");
-      await openOrFocusTab("/auth/login?next=/dashboard");
-      return { ok: false, reason: "not_logged_in", status: 401 };
+      await hideLoadingOverlay(tabId);
+      await chrome.tabs.update(tabId, {
+        url: `${CARDIFY_BASE}/auth/login?next=/dashboard`,
+        active: true
+      });
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => alert("CardifyAI: Please log in to continue.")
+        });
+      } catch (_) {}
+      return;
     }
 
-    // 402/403: Billing / subscription issue
+    // Not premium/professional or billing issue
     if (resp.status === 402 || resp.status === 403) {
-      let data = {};
-      try {
-        data = await resp.json();
-      } catch (e) {
-        data = {};
-      }
-      const redirectUrl = data.redirect_url || "/billing/portal";
-      console.warn(
-        "[CardifyAI] Billing required (",
-        resp.status,
-        "). Redirect:",
-        redirectUrl
+      const data = await resp.json().catch(() => ({}));
+      const redirectUrl = toAbsoluteUrl(
+        data.redirect_url || "/billing/portal"
       );
-      await openOrFocusTab(redirectUrl);
-      return { ok: false, reason: "billing_required", status: resp.status };
+
+      await hideLoadingOverlay(tabId);
+      await chrome.tabs.update(tabId, { url: redirectUrl, active: true });
+
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () =>
+            alert(
+              "CardifyAI: This feature is for paid plans. Opening billing to update your subscription."
+            )
+        });
+      } catch (_) {}
+      return;
     }
 
     if (!resp.ok) {
-      console.error(
-        "[CardifyAI] Backend error:",
-        resp.status,
-        resp.statusText
-      );
-      return { ok: false, reason: "server_error", status: resp.status };
+      console.error("[CardifyAI] Server error:", resp.status);
+      await hideLoadingOverlay(tabId);
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () =>
+            alert(
+              "CardifyAI: Server error while generating flashcards. Please try again."
+            )
+        });
+      } catch (_) {}
+      return;
     }
 
     const data = await resp.json().catch(() => ({}));
-    const redirectUrl =
-      data.redirect_url ||
-      data.deck_url ||
-      "/dashboard";
+    const redirectUrl = toAbsoluteUrl(
+      data.redirect_url || data.deck_url || "/dashboard"
+    );
 
-    console.log("[CardifyAI] Backend success. Redirecting to:", redirectUrl);
-
-    const tab = await openOrFocusTab(redirectUrl);
-    return { ok: true, redirectUrl, tabId: tab.id };
-
+    await hideLoadingOverlay(tabId);
+    await chrome.tabs.update(tabId, { url: redirectUrl, active: true });
   } catch (err) {
     console.error("[CardifyAI] Network error:", err);
-    return { ok: false, reason: "network_error" };
+    await hideLoadingOverlay(tabId);
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () =>
+          alert(
+            "CardifyAI: Network error while contacting the server. Please check your connection and try again."
+          )
+      });
+    } catch (_) {}
   }
 }
 
 /**
- * Core flow used by:
+ * Main flow used by:
  *  - Toolbar icon click
  *  - Context menu
  *
  * Steps:
  *  1) Collect text + num_cards from the page
- *  2) Call /api/extension/generate via POST (JSON body)
- *  3) Open /dashboard (or any redirect_url returned by backend)
+ *  2) POST to /api/extension/generate (body, NOT URL)
+ *  3) Backend does login/plan/quota checks + generation
+ *  4) Backend responds with redirect_url → we navigate the current tab there
  */
 async function startCardifyFlow(tab, selectionOverride) {
   if (!tab || !tab.id) return;
 
-  // Ignore non-http(s) tabs like chrome://, edge://, about:blank, etc.
   if (!tab.url || !tab.url.startsWith("http")) {
     console.warn("[CardifyAI] Ignoring non-http tab:", tab.url);
     return;
@@ -217,82 +313,21 @@ async function startCardifyFlow(tab, selectionOverride) {
 
   const collected = await collectFromPage(tab.id, selectionOverride || "");
   if (!collected) {
-    // user cancelled or something failed already
-    return;
+    return; // user cancelled or error
   }
 
-  // Inform the user we're sending the request
-  await showAlertInPage(
-    tab.id,
-    "CardifyAI: Sending your highlighted text to generate flashcards. You'll be redirected to the dashboard."
-  );
-
-  const result = await handleGenerateRequest(collected);
-
-  if (!result.ok) {
-    // User-facing errors
-    if (result.reason === "not_logged_in") {
-      await showAlertInPage(
-        tab.id,
-        "CardifyAI: Please log in to your CardifyAI account. A login tab has been opened."
-      );
-    } else if (result.reason === "billing_required") {
-      await showAlertInPage(
-        tab.id,
-        "CardifyAI: This feature is for paid plans. A billing page has been opened so you can update or start a subscription."
-      );
-    } else if (result.reason === "server_error") {
-      await showAlertInPage(
-        tab.id,
-        "CardifyAI: Server error while generating flashcards. Please try again in a minute."
-      );
-    } else if (result.reason === "network_error") {
-      await showAlertInPage(
-        tab.id,
-        "CardifyAI: Network error talking to CardifyAI. Check your connection and try again."
-      );
-    } else if (result.reason === "no_text") {
-      // already handled earlier, but just in case
-      await showAlertInPage(
-        tab.id,
-        "CardifyAI: No text found. Please highlight some text first."
-      );
-    } else {
-      await showAlertInPage(
-        tab.id,
-        "CardifyAI: Something went wrong generating flashcards."
-      );
-    }
-    return;
-  }
-
-  // Success: dashboard/deck tab is opened by handleGenerateRequest
-  // Optional: small confirmation on the original page
-  try {
-    await showAlertInPage(
-      tab.id,
-      "CardifyAI: Request sent successfully. Your dashboard has been opened with the new flashcards."
-    );
-  } catch (e) {
-    console.warn("[CardifyAI] Unable to show final success alert:", e);
-  }
+  await callExtensionAPI(tab.id, collected.text, collected.num_cards);
 }
 
 /**
- * MAIN USER ACTION:
- * When user clicks the extension icon:
- *  1. Get selected text (from page)
- *  2. Ask user for # of cards (via in-page prompt)
- *  3. POST to /api/extension/generate
- *  4. Open Cardify dashboard on success
+ * Toolbar icon click
  */
 chrome.action.onClicked.addListener(async (tab) => {
   startCardifyFlow(tab, null);
 });
 
 /**
- * Context Menu: same logic but uses info.selectionText as a hint
- * for the selected text (more reliable on some pages).
+ * Context Menu: use info.selectionText as hint
  */
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({

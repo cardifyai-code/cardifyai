@@ -12,17 +12,20 @@ async function openOrFocusTab(pathOrUrl = "/dashboard") {
     ? pathOrUrl
     : `${CARDIFY_BASE}${pathOrUrl.startsWith("/") ? pathOrUrl : "/" + pathOrUrl}`;
 
-  // Prefer an existing /dashboard tab
+  // Prefer an existing Cardify tab
   const existingTabs = await chrome.tabs.query({ url: CARDIFY_BASE + "/*" });
 
   if (existingTabs.length > 0) {
     const tab = existingTabs[0];
     await chrome.tabs.update(tab.id, { active: true, url });
     await chrome.windows.update(tab.windowId, { focused: true });
+    console.log("[CardifyAI/bg] Reusing Cardify tab", tab.id, url);
     return tab;
   }
 
-  return await chrome.tabs.create({ url });
+  const newTab = await chrome.tabs.create({ url });
+  console.log("[CardifyAI/bg] Created new Cardify tab", newTab.id, url);
+  return newTab;
 }
 
 /**
@@ -89,7 +92,7 @@ async function showLoadingOverlay(tabId, message) {
       args: [message || "CardifyAI: Sending selection to Cardify…"]
     });
   } catch (err) {
-    console.warn("[CardifyAI] Could not show loading overlay:", err);
+    console.warn("[CardifyAI/bg] Could not show loading overlay:", err);
   }
 }
 
@@ -109,7 +112,7 @@ async function updateLoadingOverlay(tabId, message) {
       args: [message]
     });
   } catch (err) {
-    console.warn("[CardifyAI] Could not update loading overlay:", err);
+    console.warn("[CardifyAI/bg] Could not update loading overlay:", err);
   }
 }
 
@@ -128,7 +131,7 @@ async function removeLoadingOverlay(tabId) {
       }
     });
   } catch (err) {
-    console.warn("[CardifyAI] Could not remove loading overlay:", err);
+    console.warn("[CardifyAI/bg] Could not remove loading overlay:", err);
   }
 }
 
@@ -149,6 +152,7 @@ async function collectFromPage(tabId, selectionOverride) {
       const [{ result }] = await chrome.scripting.executeScript({
         target: { tabId },
         func: () => {
+          console.log("[CardifyAI/injected] Collecting selection…");
           // Get selection from window
           let s = window.getSelection ? window.getSelection().toString() : "";
 
@@ -169,13 +173,18 @@ async function collectFromPage(tabId, selectionOverride) {
             }
           }
 
-          return (s || "").trim();
+          s = (s || "").trim();
+          console.log(
+            "[CardifyAI/injected] Selection length:",
+            s ? s.length : 0
+          );
+          return s;
         }
       });
 
       selectedText = (result || "").trim();
     } catch (err) {
-      console.error("[CardifyAI] Error getting selection:", err);
+      console.error("[CardifyAI/bg] Error getting selection:", err);
     }
   }
 
@@ -186,7 +195,7 @@ async function collectFromPage(tabId, selectionOverride) {
         func: () => alert("CardifyAI: Please highlight some text first.")
       });
     } catch (err) {
-      console.warn("[CardifyAI] Unable to show alert:", err);
+      console.warn("[CardifyAI/bg] Unable to show alert:", err);
     }
     return null;
   }
@@ -198,7 +207,10 @@ async function collectFromPage(tabId, selectionOverride) {
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
-        const v = prompt("How many flashcards would you like to generate? (1–200)", "20");
+        const v = prompt(
+          "How many flashcards would you like to generate? (1–200)",
+          "20"
+        );
         if (v === null) return null; // user cancelled
         const trimmed = v.trim();
         if (!trimmed) return null;
@@ -212,7 +224,7 @@ async function collectFromPage(tabId, selectionOverride) {
 
     numCards = result;
   } catch (err) {
-    console.error("[CardifyAI] Error in prompt:", err);
+    console.error("[CardifyAI/bg] Error in prompt:", err);
   }
 
   if (numCards === null) {
@@ -220,22 +232,30 @@ async function collectFromPage(tabId, selectionOverride) {
     return null;
   }
 
+  console.log("[CardifyAI/bg] Collected text length + num_cards:", selectedText.length, numCards);
   return { text: selectedText, num_cards: numCards };
 }
 
 /**
  * Inject code into the Cardify dashboard tab that:
- *  - waits for #input_text, #card_count, #generatorForm
+ *  - waits for the form elements
  *  - fills them with our text + num_cards
  *  - submits the form
  */
 async function fillDashboardForm(dashboardTabId, payload) {
   const { text, num_cards } = payload;
 
+  console.log("[CardifyAI/bg] Injecting fillDashboardForm into tab", dashboardTabId);
+
   try {
-    await chrome.scripting.executeScript({
+    const results = await chrome.scripting.executeScript({
       target: { tabId: dashboardTabId },
       func: (selectedText, count) => {
+        console.log("[CardifyAI/injected] fillDashboardForm started", {
+          selectedLength: selectedText ? selectedText.length : 0,
+          count
+        });
+
         function waitForElement(selector, timeout = 10000) {
           return new Promise((resolve, reject) => {
             const start = Date.now();
@@ -255,12 +275,44 @@ async function fillDashboardForm(dashboardTabId, payload) {
 
         (async () => {
           try {
-            const textarea = await waitForElement("#input_text");
-            const countInput = await waitForElement("#card_count");
-            const form = await waitForElement("#generatorForm");
+            // Try by ID first, then by name as a fallback
+            const textarea =
+              document.getElementById("input_text") ||
+              document.querySelector('textarea[name="text_content"]');
+            const countInput =
+              document.getElementById("card_count") ||
+              document.querySelector('input[name="num_cards"]');
+            const form =
+              document.getElementById("generatorForm") ||
+              document.querySelector("form#generatorForm") ||
+              document.querySelector('form[action*="/dashboard"]');
 
-            textarea.value = selectedText;
-            countInput.value = String(count);
+            console.log("[CardifyAI/injected] Found elements:", {
+              hasTextarea: !!textarea,
+              hasCountInput: !!countInput,
+              hasForm: !!form
+            });
+
+            // If any aren't present yet, wait for them explicitly
+            const finalTextarea =
+              textarea || (await waitForElement("#input_text"));
+            const finalCountInput =
+              countInput || (await waitForElement("#card_count"));
+            const finalForm =
+              form || (await waitForElement("#generatorForm"));
+
+            console.log("[CardifyAI/injected] Final elements ready:", {
+              hasTextarea: !!finalTextarea,
+              hasCountInput: !!finalCountInput,
+              hasForm: !!finalForm
+            });
+
+            finalTextarea.value = selectedText;
+            finalCountInput.value = String(count);
+
+            // Trigger input events so any listeners see the changes
+            finalTextarea.dispatchEvent(new Event("input", { bubbles: true }));
+            finalCountInput.dispatchEvent(new Event("input", { bubbles: true }));
 
             // Hook into the dashboard's own loading UI if present
             const loadingDiv = document.getElementById("loadingContainer");
@@ -270,21 +322,30 @@ async function fillDashboardForm(dashboardTabId, payload) {
               mainDiv.classList.add("d-none");
             }
 
-            form.submit();
+            console.log("[CardifyAI/injected] Submitting form now…");
+            finalForm.submit();
+
+            return { ok: true };
           } catch (e) {
-            console.error("[CardifyAI] Error auto-filling dashboard:", e);
+            console.error("[CardifyAI/injected] Error auto-filling dashboard:", e);
             alert(
               "CardifyAI: Unable to auto-fill the dashboard. " +
-              "Please paste your text manually.\n\n" +
-              String(e)
+                "Please paste your text manually.\n\n" +
+                String(e)
             );
+            return { ok: false, error: String(e) };
           }
         })();
+
+        // Nothing meaningful to return synchronously; the async IIFE handles it
+        return { started: true };
       },
       args: [text, num_cards]
     });
+
+    console.log("[CardifyAI/bg] fillDashboardForm executeScript result:", results);
   } catch (err) {
-    console.error("[CardifyAI] Error injecting fillDashboardForm:", err);
+    console.error("[CardifyAI/bg] Error injecting fillDashboardForm:", err);
   }
 }
 
@@ -305,7 +366,7 @@ async function startCardifyFlow(tab, selectionOverride) {
 
   // Ignore non-http(s) tabs like chrome://, edge://, about:blank, etc.
   if (!tab.url || !tab.url.startsWith("http")) {
-    console.warn("[CardifyAI] Ignoring non-http tab:", tab.url);
+    console.warn("[CardifyAI/bg] Ignoring non-http tab:", tab.url);
     return;
   }
 
@@ -322,9 +383,14 @@ async function startCardifyFlow(tab, selectionOverride) {
   const dashboardTab = await openOrFocusTab("/dashboard");
   const sourceTabId = tab.id;
 
+  console.log("[CardifyAI/bg] Dashboard tab status:", dashboardTab.status);
+
   // If the dashboard is already fully loaded, inject immediately
   if (dashboardTab.status === "complete") {
-    await updateLoadingOverlay(sourceTabId, "CardifyAI: Filling your Cardify deck…");
+    await updateLoadingOverlay(
+      sourceTabId,
+      "CardifyAI: Filling your Cardify deck…"
+    );
     await fillDashboardForm(dashboardTab.id, collected);
     await removeLoadingOverlay(sourceTabId);
     return;
@@ -337,7 +403,11 @@ async function startCardifyFlow(tab, selectionOverride) {
 
     chrome.tabs.onUpdated.removeListener(onUpdated);
 
-    await updateLoadingOverlay(sourceTabId, "CardifyAI: Filling your Cardify deck…");
+    console.log("[CardifyAI/bg] Dashboard finished loading; injecting filler…");
+    await updateLoadingOverlay(
+      sourceTabId,
+      "CardifyAI: Filling your Cardify deck…"
+    );
     await fillDashboardForm(updatedTabId, collected);
     await removeLoadingOverlay(sourceTabId);
   };

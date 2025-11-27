@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Cardify with CardifyAI",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Highlight text anywhere on the web and instantly generate flashcards with CardifyAI.",
   "icons": {
     "16": "CardifyLogo-16.PNG",
@@ -34,16 +34,5 @@
   ],
   "background": {
     "service_worker": "background.js"
-  },
-  "content_scripts": [
-    {
-      "matches": [
-        "<all_urls>"
-      ],
-      "js": [
-        "contentScript.js"
-      ],
-      "run_at": "document_idle"
-    }
-  ]
+  }
 }

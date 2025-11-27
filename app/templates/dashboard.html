@@ -28,10 +28,10 @@
 
       <!-- Text Input -->
       <div class="mb-3">
-        <label for="text_content" class="form-label">Source Text</label>
+        <label for="input_text" class="form-label">Source Text</label>
         <textarea
           class="form-control"
-          id="text_content"
+          id="input_text"
           name="text_content"
           rows="6"
           placeholder="Paste your lecture notes, textbook content, or key concepts here..."
@@ -56,11 +56,11 @@
       <!-- Number of Cards -->
       <div class="row mb-3">
         <div class="col-md-6">
-          <label for="num_cards" class="form-label">Number of Cards</label>
+          <label for="card_count" class="form-label">Number of Cards</label>
           <input
             type="number"
             class="form-control"
-            id="num_cards"
+            id="card_count"
             name="num_cards"
             value="{{ request.form.num_cards or 10 }}"
             min="1"
@@ -69,7 +69,7 @@
         </div>
       </div>
 
-      <button id="generateBtn" type="submit" class="btn btn-primary w-100">
+      <button id="generate_btn" type="submit" class="btn btn-primary w-100">
         Generate Flashcards
       </button>
     </form>

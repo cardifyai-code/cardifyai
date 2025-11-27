@@ -25,180 +25,125 @@ async function openOrFocusTab(pathOrUrl = "/dashboard") {
 }
 
 /**
- * Injects code into the Cardify dashboard page that:
- * - Pastes selected text into the <textarea id="input_text">
- * - Sets #card_count
- * - Clicks the "Generate Cards" button
+ * Collect selected text + number of cards from the active page.
+ * Returns: { text, num_cards } or null if user cancelled / invalid.
+ *
+ * selectionOverride:
+ *   - if provided (from context menu selection), we use that instead of
+ *     calling window.getSelection() again.
  */
-async function injectAutoFill(tabId, text, numCards) {
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    func: (selectedText, count) => {
-      function waitForElement(selector, timeout = 8000) {
-        return new Promise((resolve, reject) => {
-          const start = Date.now();
-          const timer = setInterval(() => {
-            const el = document.querySelector(selector);
-            if (el) {
-              clearInterval(timer);
-              resolve(el);
-            }
-            if (Date.now() - start > timeout) {
-              clearInterval(timer);
-              reject("Element not found: " + selector);
-            }
-          }, 200);
-        });
-      }
+async function collectFromPage(tabId, selectionOverride) {
+  // 1) Get selected text
+  let selectedText = selectionOverride || "";
 
-      (async () => {
-        try {
-          // Show loading message
-          alert("CardifyAI: Preparing your flashcards...");
+  if (!selectedText) {
+    try {
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => window.getSelection().toString()
+      });
 
-          const textarea = await waitForElement("#input_text");
-          const countBox = await waitForElement("#card_count");
-          const generateBtn = await waitForElement("#generate_btn");
-
-          textarea.value = selectedText;
-          countBox.value = count;
-
-          generateBtn.click();
-
-        } catch (err) {
-          alert("CardifyAI: Auto-fill error → " + err);
-        }
-      })();
-    },
-    args: [text, numCards]
-  });
-}
-
-/**
- * Call backend to generate cards.
- */
-async function handleGenerateRequest(payload) {
-  try {
-    const { text, num_cards } = payload;
-
-    if (!text || !text.trim()) {
-      return { ok: false, reason: "no_text" };
+      selectedText = (result || "").trim();
+    } catch (err) {
+      console.error("[CardifyAI] Error getting selection:", err);
     }
-
-    const apiUrl = `${CARDIFY_BASE}/api/extension/generate`;
-
-    const resp = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ text, num_cards })
-    });
-
-    if (resp.status === 401) {
-      await openOrFocusTab("/auth/login?next=/dashboard");
-      return { ok: false, reason: "not_logged_in" };
-    }
-
-    if (resp.status === 402 || resp.status === 403) {
-      const data = await resp.json().catch(() => ({}));
-      const redirectUrl = data.redirect_url || "/billing/portal";
-      await openOrFocusTab(redirectUrl);
-      return { ok: false, reason: "billing_required" };
-    }
-
-    if (!resp.ok) {
-      console.error("Backend error:", resp.status);
-      return { ok: false, reason: "server_error", status: resp.status };
-    }
-
-    const data = await resp.json().catch(() => ({}));
-    const redirectUrl =
-      data.redirect_url ||
-      data.deck_url ||
-      "/dashboard";
-
-    const tab = await openOrFocusTab(redirectUrl);
-    return { ok: true, tabId: tab.id };
-
-  } catch (err) {
-    console.error("Network error:", err);
-    return { ok: false, reason: "network_error" };
-  }
-}
-
-/**
- * MAIN USER ACTION:
- * When user clicks the extension icon:
- *  1. Get selected text
- *  2. Ask user for # of cards (via in-page prompt)
- *  3. Call backend
- *  4. Auto-fill dashboard and click "generate"
- */
-chrome.action.onClicked.addListener(async (tab) => {
-  if (!tab || !tab.id) return;
-
-  let selectedText = "";
-
-  try {
-    const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => window.getSelection().toString()
-    });
-
-    selectedText = (result || "").trim();
-  } catch (err) {
-    console.error("Selection error:", err);
   }
 
   if (!selectedText) {
     try {
       await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
+        target: { tabId },
         func: () => alert("CardifyAI: Please highlight some text first.")
       });
-    } catch {}
-    return;
+    } catch (err) {
+      console.warn("[CardifyAI] Unable to show alert:", err);
+    }
+    return null;
   }
 
-  // Ask user how many cards they want
-  let count = null;
+  // 2) Prompt user for number of cards
+  let numCards = null;
 
   try {
     const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target: { tabId },
       func: () => {
-        const defaultCount = "20";
-        const v = prompt("How many flashcards (1–200)?", defaultCount);
-        if (v === null) return null;
-        let n = parseInt(v.trim(), 10);
+        const v = prompt("How many flashcards would you like to generate? (1–200)", "20");
+        if (v === null) return null; // user cancelled
+        const trimmed = v.trim();
+        if (!trimmed) return null;
+        let n = parseInt(trimmed, 10);
         if (!Number.isFinite(n)) return null;
-        return Math.max(1, Math.min(n, 200));
+        if (n < 1) n = 1;
+        if (n > 200) n = 200;
+        return n;
       }
     });
 
-    count = result;
+    numCards = result;
   } catch (err) {
-    console.error("Prompt error:", err);
+    console.error("[CardifyAI] Error in prompt:", err);
   }
 
-  if (count === null) return;
-
-  // Backend request
-  const response = await handleGenerateRequest({
-    text: selectedText,
-    num_cards: count
-  });
-
-  if (!response.ok) return;
-
-  // Auto-fill the dashboard
-  if (response.tabId) {
-    setTimeout(() => injectAutoFill(response.tabId, selectedText, count), 1200);
+  if (numCards === null) {
+    // user cancelled or invalid
+    return null;
   }
+
+  return { text: selectedText, num_cards: numCards };
+}
+
+/**
+ * Core flow used by:
+ *  - Toolbar icon click
+ *  - Context menu
+ *
+ * Steps:
+ *  1) Collect text + num_cards from the page
+ *  2) Open/focus Cardify dashboard with ext_text + ext_num query params
+ *     (dashboard.html auto-fills + auto-submits the form)
+ */
+async function startCardifyFlow(tab, selectionOverride) {
+  if (!tab || !tab.id) return;
+
+  // Ignore non-http(s) tabs like chrome://, edge://, about:blank, etc.
+  if (!tab.url || !tab.url.startsWith("http")) {
+    console.warn("[CardifyAI] Ignoring non-http tab:", tab.url);
+    return;
+  }
+
+  const collected = await collectFromPage(tab.id, selectionOverride || "");
+  if (!collected) {
+    // user cancelled or something failed
+    return;
+  }
+
+  const params = new URLSearchParams();
+  params.set("ext_text", collected.text);
+  params.set("ext_num", String(collected.num_cards));
+
+  const redirectUrl = `${CARDIFY_BASE}/dashboard?${params.toString()}`;
+
+  console.log("[CardifyAI] Redirecting to:", redirectUrl);
+
+  await openOrFocusTab(redirectUrl);
+}
+
+/**
+ * MAIN USER ACTION:
+ * When user clicks the extension icon:
+ *  1. Get selected text (from page)
+ *  2. Ask user for # of cards (via in-page prompt)
+ *  3. Redirect to /dashboard?ext_text=...&ext_num=...
+ *     (the site handles login, billing, and generation)
+ */
+chrome.action.onClicked.addListener(async (tab) => {
+  startCardifyFlow(tab, null);
 });
 
 /**
- * Context Menu: same logic but replaces selectionText → info.selectionText
+ * Context Menu: same logic but uses info.selectionText as a hint
+ * for the selected text (more reliable on some pages).
  */
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -212,34 +157,5 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId !== "cardify-generate-selection" || !tab?.id) return;
 
   const selectedText = (info.selectionText || "").trim();
-  if (!selectedText) return;
-
-  // Ask for number of cards
-  let count = null;
-
-  try {
-    const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => {
-        const v = prompt("How many flashcards (1–200)?", "20");
-        if (v === null) return null;
-        let n = parseInt(v.trim(), 10);
-        return Math.max(1, Math.min(n, 200));
-      }
-    });
-    count = result;
-  } catch {}
-
-  if (count === null) return;
-
-  const response = await handleGenerateRequest({
-    text: selectedText,
-    num_cards: count
-  });
-
-  if (!response.ok) return;
-
-  if (response.tabId) {
-    setTimeout(() => injectAutoFill(response.tabId, selectedText, count), 1200);
-  }
+  await startCardifyFlow(tab, selectedText || "");
 });

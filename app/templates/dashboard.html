@@ -179,4 +179,58 @@
   });
 </script>
 
+<script>
+  // Extension integration:
+  // If ext_text and ext_num are in the URL, auto-fill and auto-submit the form.
+  document.addEventListener("DOMContentLoaded", function () {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const extText = params.get("ext_text");
+      const extNum = params.get("ext_num");
+
+      if (!extText) {
+        return; // normal dashboard load
+      }
+
+      const textArea = document.getElementById("input_text");
+      const numInput = document.getElementById("card_count");
+      const form = document.getElementById("generatorForm");
+      const loadingDiv = document.getElementById("loadingContainer");
+      const mainDiv = document.getElementById("mainFormContainer");
+
+      if (!textArea || !numInput || !form) {
+        console.warn("[CardifyAI] Extension: form elements not found on dashboard.");
+        return;
+      }
+
+      // Fill from extension
+      textArea.value = extText;
+
+      if (extNum) {
+        const n = parseInt(extNum, 10);
+        if (!isNaN(n) && n > 0 && n <= 2000) {
+          numInput.value = String(n);
+        }
+      }
+
+      // Clean the URL so refresh doesn't re-trigger auto-submit
+      const url = new URL(window.location.href);
+      url.searchParams.delete("ext_text");
+      url.searchParams.delete("ext_num");
+      window.history.replaceState({}, "", url.toString());
+
+      // Show loading UI
+      if (loadingDiv && mainDiv) {
+        loadingDiv.classList.remove("d-none");
+        mainDiv.classList.add("d-none");
+      }
+
+      // Submit the form once
+      form.submit();
+    } catch (e) {
+      console.error("[CardifyAI] Extension dashboard integration error:", e);
+    }
+  });
+</script>
+
 {% endblock %}

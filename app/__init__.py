@@ -1,6 +1,3 @@
-Here’s the complete, fully updated `app/__init__.py` with everything wired up, including the new `Review` model import and keeping all previous behavior intact (just fixing the analytics user tracking to use `current_user` properly):
-
-```python
 # app/__init__.py
 
 from flask import Flask, request
@@ -29,7 +26,6 @@ def create_app():
     oauth.init_app(app)
 
     # Import models so SQLAlchemy is aware of them
-    # (including Review for the new reviews system)
     from .models import User, Subscription, Flashcard, Visit, Review  # noqa
 
     # ------------------------
@@ -46,7 +42,7 @@ def create_app():
     app.register_blueprint(extension_api, url_prefix="/api/extension")
 
     # ------------------------
-    # Login manager settings
+    # Login manager
     # ------------------------
     login_manager.login_view = "auth.login"
     login_manager.login_message_category = "info"
@@ -64,9 +60,8 @@ def create_app():
     with app.app_context():
         db.create_all()
 
-        # Safe schema patches (no Alembic needed)
         alter_statements = [
-            # Billing / plan fields
+            # Billing / plan
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS plan VARCHAR(50) DEFAULT 'free'",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255)",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(255)",
@@ -74,16 +69,16 @@ def create_app():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE",
 
-            # Monthly quota
+            # Monthly quotas
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_card_quota INTEGER DEFAULT 1000",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS cards_generated_this_month INTEGER DEFAULT 0",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_reset_at TIMESTAMP",
 
-            # Daily quota
+            # Daily quotas
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_cards_generated INTEGER DEFAULT 0",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_reset_date DATE",
 
-            # Token usage (required for AI cost tracking)
+            # Token tracking (AI cost analytics)
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_input_tokens BIGINT DEFAULT 0",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_output_tokens BIGINT DEFAULT 0",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_input_tokens BIGINT DEFAULT 0",
@@ -97,41 +92,21 @@ def create_app():
             except Exception:
                 db.session.rollback()
 
-        # Note:
-        # - Review table is created by db.create_all() if it does not exist.
-        # - No ALTERs are needed for reviews since it's a new table, not a
-        #   modification of an existing one.
-
     # ------------------------
     # Automatic visit tracking
     # ------------------------
     @app.before_request
     def track_visit():
-        """
-        Lightweight analytics:
-        - tracks path, user id, IP, and user agent
-        - ignored for static files + favicon
-        - super cheap (one insert)
-
-        NOTE:
-        - views.log_visit() also logs visits for key pages (/, /dashboard, /admin, etc.).
-          That explicit logging is kept for more intentional analytics.
-        - This before_request hook is a generic, catch-all tracker for other routes
-          (auth, billing, etc.).
-        """
         try:
             path = request.path or ""
 
-            # Skip static assets and favicon
+            # Skip static assets + favicon
             if path.startswith("/static") or path.startswith("/favicon"):
                 return
 
-            from .models import Visit  # local import avoids circular deps
+            from .models import Visit
 
-            # Use Flask-Login's current_user instead of a non-existent request.user
-            user_id = None
-            if current_user and getattr(current_user, "is_authenticated", False):
-                user_id = current_user.id
+            user_id = current_user.id if current_user.is_authenticated else None
 
             v = Visit(
                 user_id=user_id,
@@ -146,4 +121,3 @@ def create_app():
             db.session.rollback()
 
     return app
-```

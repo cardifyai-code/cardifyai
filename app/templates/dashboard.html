@@ -1,6 +1,3 @@
-Here’s the fully updated `dashboard.html`, keeping everything you had and adding a clean “Browser Extensions” card with Chrome/Edge/Firefox links that go through the server-side gating route (`views.extension_access`) so only **premium/professional** users actually reach the store URLs (others will be redirected to the Stripe Premium checkout):
-
-```html
 {% extends "base.html" %}
 {% block content %}
 
@@ -41,6 +38,7 @@ Here’s the fully updated `dashboard.html`, keeping everything you had and addi
 </div>
 
 <div class="row mb-4" id="mainFormContainer">
+  <!-- LEFT: Generator form -->
   <div class="col-lg-8">
     <form id="generatorForm" method="post" enctype="multipart/form-data" class="mb-4">
 
@@ -93,13 +91,14 @@ Here’s the fully updated `dashboard.html`, keeping everything you had and addi
     </form>
   </div>
 
-  <!-- Upgrade / Billing Panel -->
+  <!-- RIGHT: Upgrade + Extensions -->
   <div class="col-lg-4">
+    <!-- Upgrade / Billing Panel -->
     <div class="card mb-3">
       <div class="card-body">
         <h5 class="card-title">Upgrade Plan</h5>
         <p class="card-text">
-          Unlock higher daily limits, handle larger PDFs with ease, and access browser extensions.
+          Unlock higher daily limits and handle larger PDFs with ease.
         </p>
 
         <ul class="list-unstyled small mb-3">
@@ -129,40 +128,57 @@ Here’s the fully updated `dashboard.html`, keeping everything you had and addi
         </a>
       </div>
     </div>
-  </div>
-</div>
 
-<!-- ========== BROWSER EXTENSIONS SECTION ========== -->
-
-<div class="row mb-4">
-  <div class="col-lg-12">
+    <!-- Browser Extensions Panel -->
     <div class="card">
-      <div class="card-body d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center">
-        <div class="mb-3 mb-md-0">
-          <h5 class="card-title mb-2">CardifyAI Browser Extensions</h5>
-          <p class="card-text small mb-1">
-            Highlight text anywhere on the web and send it straight into CardifyAI with one click.
-          </p>
-          <p class="card-text small text-muted mb-0">
-            Available for <strong>Premium</strong> and <strong>Professional</strong> plans.
-            Clicking an extension link will automatically check your plan and redirect to Premium billing if needed.
-          </p>
+      <div class="card-body">
+        <h5 class="card-title d-flex justify-content-between align-items-center">
+          Browser Extensions
+          {% if has_extension_access %}
+            <span class="badge bg-success">Unlocked</span>
+          {% else %}
+            <span class="badge bg-secondary">Premium</span>
+          {% endif %}
+        </h5>
+
+        <p class="card-text small mb-3">
+          Highlight text anywhere on the web, click the CardifyAI icon, and your
+          flashcards will be generated directly into this dashboard.
+        </p>
+
+        {% if not has_extension_access %}
+          <div class="alert alert-warning py-2 small">
+            Browser extensions are available for
+            <strong>Premium</strong> and <strong>Professional</strong> plans.
+            You can still click the buttons below, and if you’re not eligible
+            you’ll be redirected to upgrade.
+          </div>
+        {% endif %}
+
+        <div class="d-grid gap-2">
+          <!-- Chrome -->
+          <a href="{{ url_for('views.extension_chrome') }}"
+             class="btn btn-outline-dark btn-sm">
+            Install Chrome Extension
+          </a>
+
+          <!-- Edge -->
+          <a href="{{ url_for('views.extension_edge') }}"
+             class="btn btn-outline-dark btn-sm">
+            Install Edge Extension
+          </a>
+
+          <!-- Firefox -->
+          <a href="{{ url_for('views.extension_firefox') }}"
+             class="btn btn-outline-dark btn-sm">
+            Install Firefox Extension
+          </a>
         </div>
-        <div class="d-flex flex-column flex-md-row gap-2">
-          <!-- These go through views.extension_access, which enforces Premium/Professional -->
-          <a href="{{ url_for('views.extension_access', target='chrome') }}"
-             class="btn btn-outline-primary btn-sm">
-            Chrome Extension
-          </a>
-          <a href="{{ url_for('views.extension_access', target='edge') }}"
-             class="btn btn-outline-primary btn-sm">
-            Edge Add-on
-          </a>
-          <a href="{{ url_for('views.extension_access', target='firefox') }}"
-             class="btn btn-outline-primary btn-sm">
-            Firefox Add-on
-          </a>
-        </div>
+
+        <p class="text-muted small mt-2 mb-0">
+          If you don’t have access yet, you’ll be redirected to upgrade to
+          the Premium plan.
+        </p>
       </div>
     </div>
   </div>
@@ -202,7 +218,6 @@ Here’s the fully updated `dashboard.html`, keeping everything you had and addi
   const loadingDiv = document.getElementById("loadingContainer");
   const mainDiv = document.getElementById("mainFormContainer");
 
-  // Show loading UI
   loadingDiv.classList.remove("d-none");
   mainDiv.classList.add("d-none");
 
@@ -211,7 +226,7 @@ Here’s the fully updated `dashboard.html`, keeping everything you had and addi
       .then(r => r.json())
       .then(data => {
         if (data.status === "finished") {
-          window.location = "/dashboard";  // reload with results
+          window.location = "/dashboard";
         } else if (data.status === "failed") {
           loadingDiv.innerHTML =
             "<div class='alert alert-danger'>Flashcard generation failed. Try again.</div>";
@@ -227,11 +242,13 @@ Here’s the fully updated `dashboard.html`, keeping everything you had and addi
 
 <script>
   // UX: When form is submitted, show loading state immediately
-  document.getElementById("generatorForm").addEventListener("submit", () => {
-    document.getElementById("loadingContainer").classList.remove("d-none");
-    document.getElementById("mainFormContainer").classList.add("d-none");
-  });
+  const genForm = document.getElementById("generatorForm");
+  if (genForm) {
+    genForm.addEventListener("submit", () => {
+      document.getElementById("loadingContainer").classList.remove("d-none");
+      document.getElementById("mainFormContainer").classList.add("d-none");
+    });
+  }
 </script>
 
 {% endblock %}
-```
